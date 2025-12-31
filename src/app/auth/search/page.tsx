@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { Dialog } from '@headlessui/react';
 import { useRouter } from 'next/navigation'
 import { ChefHat, ArrowLeft, Search, MapPin, Star, Loader, AlertCircle } from 'lucide-react'
 import { toast } from 'sonner'
@@ -20,6 +21,8 @@ interface Restaurant {
 }
 
 export default function SearchPage() {
+    const [modalOpen, setModalOpen] = useState(false);
+    const [modalStatus, setModalStatus] = useState<{ status: string; reason?: string }>({ status: '', reason: '' });
   const router = useRouter()
   const [restaurants, setRestaurants] = useState<Restaurant[]>([])
   const [filteredRestaurants, setFilteredRestaurants] = useState<Restaurant[]>([])
@@ -70,11 +73,47 @@ export default function SearchPage() {
     }
   }
 
-  const handleSelectRestaurant = (restaurantId: string) => {
-    // Store restaurant ID and redirect to MX dashboard
-    localStorage.setItem('selectedRestaurantId', restaurantId)
-    router.push('/mx/dashboard')
+  const handleSelectRestaurant = async (storeId: string) => {
+    if (!storeId) {
+      setModalStatus({ status: 'ERROR', reason: 'Invalid store ID.' });
+      setModalOpen(true);
+      return;
+    }
+    try {
+      const res = await fetch(`/api/store-status?store_id=${storeId}`);
+      const data = await res.json();
+      console.log('DEBUG approval_status:', data.approval_status); // Debug log
+      // Always set correct key and redirect, let dashboard handle modal
+      localStorage.setItem('selectedStoreId', storeId);
+      router.push('/mx/dashboard');
+    } catch (e) {
+      setModalStatus({ status: 'ERROR', reason: 'Could not verify store status.' });
+      setModalOpen(true);
+    }
   }
+      {/* Modal for status */}
+      <Dialog open={modalOpen} onClose={() => setModalOpen(false)} className="fixed z-50 inset-0 overflow-y-auto">
+        <div className="flex items-center justify-center min-h-screen px-4">
+          <Dialog.Overlay className="fixed inset-0 bg-black opacity-30" />
+          <div className="relative bg-white rounded-lg max-w-md mx-auto p-8 shadow-xl z-10">
+            <Dialog.Title className="text-lg font-bold mb-2">Store Status</Dialog.Title>
+            <div className="mb-4">
+              {modalStatus.status === 'SUBMITTED' && <span className="text-blue-600 font-semibold">Your store is submitted and under review.</span>}
+              {modalStatus.status === 'UNDER_VERIFICATION' && <span className="text-yellow-600 font-semibold">Your store is under verification.</span>}
+              {modalStatus.status === 'REJECTED' && <span className="text-red-600 font-semibold">Your store registration was rejected.</span>}
+              {modalStatus.status === 'ERROR' && <span className="text-red-600 font-semibold">{modalStatus.reason}</span>}
+              {/* Fallback for unknown status */}
+              {modalStatus.status && !['SUBMITTED','UNDER_VERIFICATION','REJECTED','ERROR'].includes(modalStatus.status) && (
+                <span className="text-gray-700 font-semibold">Store status: {modalStatus.status}{modalStatus.reason ? ` - ${modalStatus.reason}` : ''}</span>
+              )}
+              {modalStatus.reason && modalStatus.status === 'REJECTED' && (
+                <div className="mt-2 text-sm text-gray-700">Reason: {modalStatus.reason}</div>
+              )}
+            </div>
+            <button onClick={() => setModalOpen(false)} className="px-4 py-2 bg-blue-600 text-white rounded-lg">Close</button>
+          </div>
+        </div>
+      </Dialog>
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-purple-50">
@@ -254,7 +293,7 @@ export default function SearchPage() {
                         </td>
                         <td className="px-6 py-4 text-center">
                           <button
-                            onClick={() => handleSelectRestaurant(restaurant.restaurant_id)}
+                            onClick={() => handleSelectRestaurant(restaurant.store_id)}
                             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold transition-all text-sm"
                           >
                             View Store
