@@ -12,10 +12,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'file required' }, { status: 400 });
     }
 
-    // Prepare key for R2
+    // Prepare key for R2 - use menuitems/ prefix for menu item images
     const timestamp = Date.now();
     const safeName = file.name.replace(/\s+/g, '_');
-    const key = `${parent}/${timestamp}_${safeName}`;
+    // Organize menu item images under menuitems/ directory
+    const key = `menuitems/${parent}/${timestamp}_${safeName}`;
 
     // Use the S3-compatible upload
     let objectKey: string | null = null;

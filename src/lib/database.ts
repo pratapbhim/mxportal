@@ -892,119 +892,34 @@ export const createMenuItem = async (itemData: any) => {
 }
 
 export const updateMenuItem = async (itemId: string, itemData: any) => {
+  console.log('=== updateMenuItem CALLED ===', { itemId, itemData });
+  // Log the payload for debugging
+  console.log('updateMenuItem payload:', JSON.stringify(itemData, null, 2));
+  // Update all editable fields
   try {
-    // Get the item to check for existing customizations
-    const { data: existingItem, error: fetchError } = await supabase
-      .from('menu_items')
-      .select(`
-        *,
-        customizations:item_customizations(
-          id,
-          addons:item_addons(id)
-        )
-      `)
-      .eq('id', itemId)
-      .single();
-
-    if (fetchError) throw fetchError;
-
-    // Check if customizations exist
-    const hasCustomizations = itemData.customizations && itemData.customizations.length > 0;
-    const hasAddons = hasCustomizations && itemData.customizations.some((c: any) => 
-      c.addons && c.addons.length > 0
-    );
-
-    // First delete existing customizations and addons (cascade will handle addons)
-    if (existingItem.customizations && existingItem.customizations.length > 0) {
-      const { error: deleteError } = await supabase
-        .from('item_customizations')
-        .delete()
-        .in('id', existingItem.customizations.map((c: any) => c.id));
-
-      if (deleteError) {
-        console.error('Error deleting old customizations:', deleteError);
-      }
-    }
-
-    // Update the menu item
+    // Only include fields that exist in the schema
+    const updatePayload = {
+      item_name: itemData.item_name,
+      description: itemData.description,
+      category_type: itemData.category_type,
+      food_category_item: itemData.food_category_item,
+      image_url: itemData.image_url,
+      actual_price: itemData.actual_price,
+      offer_percent: itemData.offer_percent,
+      in_stock: itemData.in_stock,
+      has_customization: itemData.has_customization,
+      has_addons: itemData.has_addons,
+      updated_at: new Date().toISOString(),
+    };
     const { data, error } = await supabase
       .from('menu_items')
-      .update({
-        item_name: itemData.item_name,
-        description: itemData.description || '',
-        category_type: itemData.category_type,
-        food_category_item: itemData.food_category_item,
-        image_url: itemData.image_url || null,
-        actual_price: itemData.actual_price,
-        offer_price: itemData.offer_price || null,
-        in_stock: itemData.in_stock,
-        has_customization: hasCustomizations,
-        has_addons: hasAddons,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', itemId)
+      .update(updatePayload)
+      .eq('item_id', itemId)
       .select()
       .single();
-
+    console.log('updateMenuItem full update result:', data, error);
     if (error) throw error;
-
-    // If there are new customizations, insert them with their addons
-    if (hasCustomizations && data) {
-      for (const customization of itemData.customizations) {
-        const { data: custData, error: custError } = await supabase
-          .from('item_customizations')
-          .insert([{
-            menu_item_id: data.id,
-            title: customization.title,
-            required: customization.required || false,
-            max_selection: customization.max_selection || 1
-          }])
-          .select()
-          .single();
-
-        if (custError) {
-          console.error('Error creating customization:', custError);
-          continue;
-        }
-
-        // If there are addons for this customization, insert them
-        if (customization.addons && customization.addons.length > 0 && custData) {
-          const addonsToInsert = customization.addons.map((addon: any) => ({
-            customization_id: custData.id,
-            addon_name: addon.addon_name,
-            addon_price: addon.addon_price
-          }));
-
-          const { error: addonError } = await supabase
-            .from('item_addons')
-            .insert(addonsToInsert);
-
-          if (addonError) {
-            console.error('Error creating addons:', addonError);
-          }
-        }
-      }
-    }
-
-    // Fetch the complete updated item
-    const { data: completeItem, error: completeError } = await supabase
-      .from('menu_items')
-      .select(`
-        *,
-        customizations:item_customizations(
-          *,
-          addons:item_addons(*)
-        )
-      `)
-      .eq('item_id', itemId)
-      .single();
-
-    if (completeError) {
-      console.error('Error fetching updated item:', completeError);
-      return data; // Return basic item if fetch fails
-    }
-
-    return completeItem;
+    return data;
   } catch (error) {
     console.error('Error updating menu item:', error);
     throw error;
@@ -1046,9 +961,39 @@ export const updateMenuItemStock = async (itemId: string, inStock: boolean) => {
 export const deleteMenuItem = async (itemId: string) => {
   try {
     console.log('🗑️ [DELETE] Starting hard delete for item:', itemId);
-    
+
+    // Fetch the item to get image_url and store_id before deleting
+    const { data: item, error: fetchError } = await supabase
+      .from('menu_items')
+      .select('image_url, store_id')
+      .eq('item_id', itemId)
+      .single();
+
+    if (fetchError) {
+      console.error('❌ [DELETE] Could not fetch item for image deletion:', fetchError);
+      throw new Error(fetchError.message || 'Failed to fetch item for deletion');
+    }
+
+    // Delete image from R2 FIRST (while we still have the image_url)
+    if (item?.image_url) {
+      try {
+        const { deleteFromR2, extractR2KeyFromUrl } = await import('./r2');
+        const key = extractR2KeyFromUrl(item.image_url);
+        
+        if (key) {
+          await deleteFromR2(key);
+          console.log('🗑️ [DELETE] Image deleted from R2:', key);
+        } else {
+          console.warn('⚠️ [DELETE] Could not extract R2 key from URL:', item.image_url);
+        }
+      } catch (imgErr: any) {
+        // Log error but continue with database deletion to avoid orphaned records
+        console.error('❌ [DELETE] Failed to delete image from R2:', imgErr?.message || imgErr);
+        // Don't throw - we'll still delete the database record
+      }
+    }
+
     // Hard delete - completely remove from database
-    // Cascade will handle customizations and addons
     const { error } = await supabase
       .from('menu_items')
       .delete()
@@ -1060,8 +1005,8 @@ export const deleteMenuItem = async (itemId: string) => {
       console.error('❌ [DELETE] Delete failed:', error);
       throw new Error(error.message || 'Failed to delete item');
     }
-    
-    console.log('✅ [DELETE] Item completely removed from Supabase');
+
+    console.log('✅ [DELETE] Item and image removed');
     return true;
   } catch (error: any) {
     console.error('❌ [DELETE] Error:', error?.message || error);

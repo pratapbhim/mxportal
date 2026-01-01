@@ -26,7 +26,7 @@ const CATEGORY_ITEMS = [
 interface Addon {
   addon_id: string;
   customization_id: string;
-  addon_item_id: string; // references menu_items.item_id
+  addon_item_id: string;
   addon_name: string;
   addon_price: number;
 }
@@ -40,6 +40,7 @@ interface Customization {
   addons: Addon[];
 }
 
+// Fixed MenuItem interface
 interface MenuItem {
   item_id: string;
   store_id: string;
@@ -48,6 +49,7 @@ interface MenuItem {
   food_category_item: string;
   actual_price: number;
   offer_percent?: number;
+  offer_price?: number;
   image_url?: string;
   in_stock: boolean;
   description: string;
@@ -60,15 +62,15 @@ function CustomizationEditor({ customizations, setCustomizations }: { customizat
   const [expandedCustomization, setExpandedCustomization] = useState<number | null>(null);
 
   const addCustomization = () => {
-    setCustomizations([
-      ...customizations,
-      { 
-        title: '', 
-        required: false, 
-        max_selection: 1, 
-        addons: [] 
-      }
-    ]);
+    const newCustomization: Customization = {
+      customization_id: '',
+      menu_item_id: '',
+      title: '',
+      required: false,
+      max_selection: 1,
+      addons: []
+    };
+    setCustomizations([...customizations, newCustomization]);
     setExpandedCustomization(customizations.length);
   };
 
@@ -87,10 +89,14 @@ function CustomizationEditor({ customizations, setCustomizations }: { customizat
 
   const addAddon = (customizationIndex: number) => {
     const updated = [...customizations];
-    updated[customizationIndex].addons.push({
+    const newAddon: Addon = {
+      addon_id: '',
+      customization_id: '',
+      addon_item_id: '',
       addon_name: '',
       addon_price: 0
-    });
+    };
+    updated[customizationIndex].addons.push(newAddon);
     setCustomizations(updated);
   };
 
@@ -222,6 +228,341 @@ function CustomizationEditor({ customizations, setCustomizations }: { customizat
   );
 }
 
+// Compact Form Component for Add/Edit
+function ItemForm({
+  isEdit = false,
+  formData,
+  setFormData,
+  imagePreview,
+  setImagePreview,
+  onProcessImage,
+  onSubmit,
+  onCancel,
+  isSaving,
+  error,
+  title
+}: {
+  isEdit?: boolean;
+  formData: any;
+  setFormData: (data: any) => void;
+  imagePreview: string;
+  setImagePreview: (url: string) => void;
+  onProcessImage: (file: File, isEdit: boolean) => void;
+  onSubmit: () => void;
+  onCancel: () => void;
+  isSaving: boolean;
+  error: string;
+  title: string;
+}) {
+  const [activeTab, setActiveTab] = useState<'basic' | 'pricing' | 'customization'>('basic');
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      onProcessImage(file, isEdit);
+    }
+  };
+
+  // Offer percent validation
+  const offerPercentNum = Number(formData.offer_percent);
+  const isOfferPercentInvalid =
+    formData.offer_percent !== '' && (isNaN(offerPercentNum) || offerPercentNum < 0 || offerPercentNum > 100);
+
+  return (
+    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-2 md:mx-0 p-0 border border-gray-100">
+      {/* Header */}
+      <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
+        <div>
+          <h2 className="text-lg md:text-xl font-bold text-gray-900">{title}</h2>
+          <p className="text-xs md:text-sm text-gray-500 mt-0.5">Enter details for the menu item</p>
+        </div>
+        <button
+          onClick={onCancel}
+          className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+          tabIndex={0}
+          aria-label="Close"
+        >
+          <X size={20} className="text-gray-600" />
+        </button>
+      </div>
+
+      {/* Tabs */}
+      <div className="border-b border-gray-200">
+        <div className="flex px-5">
+          <button
+            type="button"
+            onClick={() => setActiveTab('basic')}
+            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'basic' ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          >
+            Basic Info
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('pricing')}
+            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'pricing' ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          >
+            Pricing
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('customization')}
+            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'customization' ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          >
+            Customizations
+          </button>
+        </div>
+      </div>
+
+      {/* Form Content */}
+      <form className="px-5 py-4 max-h-[70vh] overflow-y-auto" autoComplete="off" onSubmit={(e) => { e.preventDefault(); onSubmit(); }}>
+        
+        {activeTab === 'basic' && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Item Name */}
+              <div className="flex flex-col gap-2">
+                <label className="text-xs font-semibold text-gray-700">Item Name *</label>
+                <input
+                  type="text"
+                  placeholder="Enter item name"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-md focus:border-orange-400 focus:ring-1 focus:ring-orange-100 text-sm text-gray-900"
+                  value={formData.item_name}
+                  onChange={e => setFormData({ ...formData, item_name: e.target.value })}
+                  required
+                />
+              </div>
+              
+              {/* Category Type */}
+              <div className="flex flex-col gap-2">
+                <label className="text-xs font-semibold text-gray-700">Category Type *</label>
+                <select
+                  className="w-full px-3 py-2 border border-gray-200 rounded-md focus:border-orange-400 focus:ring-1 focus:ring-orange-100 text-sm text-gray-900"
+                  value={formData.category_type}
+                  onChange={e => setFormData({ ...formData, category_type: e.target.value })}
+                  required
+                >
+                  <option value="VEG">Veg</option>
+                  <option value="NON_VEG">Non-Veg</option>
+                  <option value="BEVERAGES">Beverages</option>
+                  <option value="DESSERTS">Desserts</option>
+                  <option value="OTHER">Other</option>
+                </select>
+              </div>
+              
+              {/* Food Category Item Dropdown */}
+              <div className="flex flex-col gap-2">
+                <label className="text-xs font-semibold text-gray-700">Food Item *</label>
+                <select
+                  className="w-full px-3 py-2 border border-gray-200 rounded-md focus:border-orange-400 focus:ring-1 focus:ring-orange-100 text-sm text-gray-900"
+                  value={formData.food_category_item}
+                  onChange={e => {
+                    const value = e.target.value;
+                    setFormData({ 
+                      ...formData, 
+                      food_category_item: value,
+                      customCategory: value === 'other_custom' ? formData.customCategory : '' 
+                    });
+                  }}
+                  required
+                >
+                  <option value="">Select a food item</option>
+                  {CATEGORY_ITEMS.map(item => (
+                    <option key={item} value={item}>{item}</option>
+                  ))}
+                  <option value="other_custom">Other (Type your own)</option>
+                </select>
+                
+                {/* Custom category input */}
+                {formData.food_category_item === 'other_custom' && (
+                  <input
+                    type="text"
+                    placeholder="Enter custom food item name"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-md focus:border-orange-400 focus:ring-1 focus:ring-orange-100 text-sm text-gray-900 mt-1"
+                    value={formData.customCategory}
+                    onChange={e => setFormData({ ...formData, customCategory: e.target.value })}
+                    required
+                  />
+                )}
+              </div>
+              
+              {/* Image Upload */}
+              <div className="flex flex-col gap-2">
+                <label className="text-xs font-semibold text-gray-700">Image (Optional)</label>
+                <div className="flex items-center gap-3">
+                  <div className="relative">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      onChange={handleImageChange}
+                      id="image-upload"
+                    />
+                    <label
+                      htmlFor="image-upload"
+                      className="flex items-center gap-2 px-3 py-2 rounded-md bg-orange-500 text-white font-medium hover:bg-orange-600 cursor-pointer text-sm border border-orange-500 transition-colors"
+                    >
+                      <Upload size={14} />
+                      Choose Image
+                    </label>
+                  </div>
+                  {imagePreview && (
+                    <img src={imagePreview} alt="Preview" className="w-12 h-12 object-cover rounded-md border" />
+                  )}
+                </div>
+              </div>
+            </div>
+            
+            {/* Description */}
+            <div className="flex flex-col gap-2">
+              <label className="text-xs font-semibold text-gray-700">Description (Optional)</label>
+              <textarea
+                placeholder="Enter description"
+                className="w-full px-3 py-2 border border-gray-200 rounded-md focus:border-orange-400 focus:ring-1 focus:ring-orange-100 text-sm text-gray-900 min-h-[80px] resize-none"
+                value={formData.description}
+                onChange={e => setFormData({ ...formData, description: e.target.value })}
+              />
+            </div>
+            
+            {/* Stock Status */}
+            <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+              <div>
+                <div className="text-sm font-semibold text-gray-700">Stock Status</div>
+                <div className="text-xs text-gray-500">Toggle to mark item as in/out of stock</div>
+              </div>
+              <label className="inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.in_stock}
+                  onChange={e => setFormData({ ...formData, in_stock: e.target.checked })}
+                  className="sr-only peer"
+                />
+                <div className={`w-10 h-5 bg-gray-200 rounded-full peer peer-checked:bg-green-500 transition-all relative`}>
+                  <div className={`absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full shadow-md transition-transform ${formData.in_stock ? 'translate-x-5' : ''}`}></div>
+                </div>
+                <span className={`ml-2 text-sm font-semibold ${formData.in_stock ? 'text-green-600' : 'text-red-600'}`}>
+                  {formData.in_stock ? 'In Stock' : 'Out of Stock'}
+                </span>
+              </label>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'pricing' && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Actual Price */}
+              <div className="flex flex-col gap-2">
+                <label className="text-xs font-semibold text-gray-700">Actual Price *</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">₹</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="Enter actual price"
+                    className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-md focus:border-orange-400 focus:ring-1 focus:ring-orange-100 text-sm text-gray-900"
+                    value={formData.actual_price}
+                    onChange={e => setFormData({ ...formData, actual_price: e.target.value })}
+                    required
+                  />
+                </div>
+              </div>
+              
+              {/* Offer Percent */}
+              <div className="flex flex-col gap-2">
+                <label className="text-xs font-semibold text-gray-700">Offer Percent (Optional)</label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    placeholder="e.g. 10 for 10% off"
+                    className={`w-full px-3 py-2 border border-gray-200 rounded-md focus:border-orange-400 focus:ring-1 focus:ring-orange-100 text-sm text-gray-900 ${isOfferPercentInvalid ? 'border-red-400' : ''}`}
+                    value={formData.offer_percent}
+                    onChange={e => setFormData({ ...formData, offer_percent: e.target.value })}
+                  />
+                  <span className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500">%</span>
+                </div>
+                {isOfferPercentInvalid && (
+                  <div className="text-xs text-red-500 font-semibold">Offer percent must be between 0 and 100</div>
+                )}
+                <div className="text-xs text-gray-400">Leave empty if no offer</div>
+              </div>
+            </div>
+            
+            {/* Price Preview */}
+            {formData.actual_price && (
+              <div className="p-3 bg-gray-50 rounded-lg">
+                <div className="text-sm font-semibold text-gray-700 mb-2">Price Preview</div>
+                <div className="flex items-center gap-2">
+                  <div className="text-lg font-bold text-orange-700">
+                    ₹{formData.offer_percent ? 
+                      Math.round(Number(formData.actual_price) * (1 - Number(formData.offer_percent) / 100)) : 
+                      formData.actual_price}
+                  </div>
+                  {formData.offer_percent && (
+                    <>
+                      <div className="text-sm text-gray-500 line-through">₹{formData.actual_price}</div>
+                      <div className="px-2 py-1 bg-green-100 text-green-700 text-xs font-bold rounded">
+                        {formData.offer_percent}% OFF
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'customization' && (
+          <div className="space-y-4">
+            <div className="bg-gray-50 border border-gray-100 rounded-lg p-3">
+              <CustomizationEditor
+                customizations={formData.customizations || []}
+                setCustomizations={customizations => setFormData({ ...formData, customizations })}
+              />
+            </div>
+            <div className="text-xs text-gray-500">
+              <p>• Add customization groups (e.g., Spice Level, Toppings)</p>
+              <p>• Each group can have multiple addon options with prices</p>
+              <p>• Mark as required if customers must select an option</p>
+            </div>
+          </div>
+        )}
+
+        {/* Error Message */}
+        {error && <div className="text-red-600 text-xs font-bold p-3 bg-red-50 rounded-lg">{error}</div>}
+
+        <div className="flex items-center gap-2">
+          <button
+            className="px-4 py-2 rounded-md font-medium text-gray-600 bg-white border border-gray-200 hover:bg-gray-100 transition-all text-sm"
+            onClick={onCancel}
+            type="button"
+          >
+            Cancel
+          </button>
+          <button
+            className={`px-5 py-2 rounded-md font-medium text-white transition-all text-sm ${
+              isSaving || !formData.item_name?.trim() || !formData.actual_price?.trim() || 
+              (!formData.food_category_item?.trim() && !formData.customCategory?.trim()) || isOfferPercentInvalid
+                ? 'bg-orange-200 cursor-not-allowed' : 'bg-orange-500 hover:bg-orange-600'
+            }`}
+            onClick={onSubmit}
+            disabled={
+              isSaving || !formData.item_name?.trim() || !formData.actual_price?.trim() || 
+              (!formData.food_category_item?.trim() && !formData.customCategory?.trim()) || isOfferPercentInvalid
+            }
+            type="submit"
+          >
+            {isSaving ? 'Saving...' : (isEdit ? 'Save Changes' : 'Save Item')}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 function MenuContent() {
   const searchParams = useSearchParams();
   const [store, setStore] = useState<MerchantStore | null>(null);
@@ -231,8 +572,14 @@ function MenuContent() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('ALL');
 
-  // Add modal state
+  // Modal states
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showStockModal, setShowStockModal] = useState(false);
+  const [viewCustModal, setViewCustModal] = useState<{ open: boolean; item: MenuItem | null }>({ open: false, item: null });
+
+  // Form states
   const [addForm, setAddForm] = useState({
     item_name: '',
     category_type: 'VEG' as 'VEG' | 'NON_VEG' | 'BEVERAGES' | 'DESSERTS' | 'OTHER',
@@ -248,20 +595,13 @@ function MenuContent() {
     has_addons: false,
     customizations: [] as Customization[],
   });
-  const [imagePreview, setImagePreview] = useState('');
-  const [addError, setAddError] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
-
-  // Edit modal state
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({
     item_name: '',
     category_type: 'VEG' as 'VEG' | 'NON_VEG' | 'BEVERAGES' | 'DESSERTS' | 'OTHER',
     food_category_item: '',
     customCategory: '',
     actual_price: '',
-    offer_price: '',
+    offer_percent: '',
     description: '',
     in_stock: true,
     image_url: '',
@@ -270,78 +610,57 @@ function MenuContent() {
     has_addons: false,
     customizations: [] as Customization[],
   });
-  const [editImagePreview, setEditImagePreview] = useState('');
-  const [editError, setEditError] = useState('');
-  const [isSavingEdit, setIsSavingEdit] = useState(false);
 
-  // Delete modal state
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [imagePreview, setImagePreview] = useState('');
+  const [editImagePreview, setEditImagePreview] = useState('');
+  const [addError, setAddError] = useState('');
+  const [editError, setEditError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [deleteItemId, setDeleteItemId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-
-  // Stock modal state
-  const [showStockModal, setShowStockModal] = useState(false);
   const [stockToggleItem, setStockToggleItem] = useState<{ item_id: string; newStatus: boolean } | null>(null);
   const [isTogglingStock, setIsTogglingStock] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
-  // View customizations modal
-  const [viewCustModal, setViewCustModal] = useState<{ open: boolean; item: MenuItem | null }>({ open: false, item: null });
-
-  const [formData, setFormData] = useState({
-    name: '',
-    category_type: 'VEG',
-    customCategory: '',
-    actual_price: '',
-    description: '',
-    in_stock: true,
-    image: null as File | null,
-    image_url: '',
-    has_customization: false,
-    has_addons: false,
-    customizations: [] as Customization[]
-  })
-
-  const [imageUploadStatus, setImageUploadStatus] = useState<any>(null)
-  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false)
-  const [isDraggingImage, setIsDraggingImage] = useState(false)
-  const [storeError, setStoreError] = useState<string | null>(null)
+  const [imageUploadStatus, setImageUploadStatus] = useState<any>(null);
+  const [storeError, setStoreError] = useState<string | null>(null);
 
   useEffect(() => {
     const getStoreId = async () => {
-      let id = searchParams.get('storeId')
-      if (!id) id = typeof window !== 'undefined' ? localStorage.getItem('selectedStoreId') : null
-      setStoreId(id)
-    }
-    getStoreId()
-  }, [searchParams])
+      let id = searchParams.get('storeId');
+      if (!id) id = typeof window !== 'undefined' ? localStorage.getItem('selectedStoreId') : null;
+      setStoreId(id);
+    };
+    getStoreId();
+  }, [searchParams]);
 
   useEffect(() => {
     if (!storeId) {
-      // If no storeId found, show error and stop loading
-      setStoreError('Please select a store first. No store ID found in URL or localStorage.')
-      setIsLoading(false)
-      return
+      setStoreError('Please select a store first. No store ID found in URL or localStorage.');
+      setIsLoading(false);
+      return;
     }
     
     const loadData = async () => {
-      setIsLoading(true)
-      setStoreError(null)
+      setIsLoading(true);
+      setStoreError(null);
       try {
-        let data = await fetchStoreById(storeId)
+        let data = await fetchStoreById(storeId);
         if (!data) {
-          data = await fetchStoreByName(storeId)
+          data = await fetchStoreByName(storeId);
         }
         
         if (!data) {
-          setStoreError(`Store not found with ID/Name: ${storeId}`)
-          setIsLoading(false)
-          return
+          setStoreError(`Store not found with ID/Name: ${storeId}`);
+          setIsLoading(false);
+          return;
         }
         
-        setStore(data)
+        setStore(data);
         
-        const items = await fetchMenuItems(storeId)
-        const mappedItems = items.map((item: any) => ({
+        const items = await fetchMenuItems(storeId);
+        const mappedItems: MenuItem[] = items.map((item: any) => ({
           item_id: item.item_id,
           store_id: item.store_id,
           item_name: item.item_name,
@@ -349,32 +668,60 @@ function MenuContent() {
           food_category_item: item.food_category_item,
           actual_price: item.actual_price,
           offer_percent: item.offer_percent || 0,
+          offer_price: item.offer_price || 0,
           image_url: item.image_url,
           in_stock: item.in_stock,
           description: item.description,
           has_customization: item.has_customization,
           has_addons: item.has_addons,
           customizations: item.customizations || []
-        }))
-        console.log('Loaded items with food_category_item:', mappedItems.map(i => ({ item_name: i.item_name, food_category_item: i.food_category_item })))
-        setMenuItems(mappedItems)
+        }));
+        setMenuItems(mappedItems);
 
-        const status = await getImageUploadStatus(storeId)
-        setImageUploadStatus(status)
+        const status = await getImageUploadStatus(storeId);
+        setImageUploadStatus(status);
       } catch (error) {
-        console.error('Error loading menu:', error)
-        setStoreError('Error loading store data. Please try again.')
+        console.error('Error loading menu:', error);
+        setStoreError('Error loading store data. Please try again.');
       } finally {
-        setIsLoading(false)
+        setIsLoading(false);
       }
+    };
+    loadData();
+  }, [storeId]);
+
+  const processImageFile = (file: File, isEdit: boolean = false) => {
+    const canAddImage = !imageUploadStatus || imageUploadStatus.totalUsed < 10;
+
+    if (!canAddImage && !addForm.image_url) {
+      toast.error('Image upload limit reached. Please upgrade your subscription.');
+      return;
     }
-    loadData()
-  }, [storeId])
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const dataUrl = reader.result as string;
+      if (isEdit) {
+        setEditImagePreview(dataUrl);
+        setEditForm(prev => ({ ...prev, image_url: dataUrl }));
+      } else {
+        setImagePreview(dataUrl);
+        setAddForm(prev => ({ ...prev, image_url: dataUrl }));
+      }
+    };
+    reader.readAsDataURL(file);
+    
+    if (isEdit) {
+      setEditForm(prev => ({ ...prev, image: file }));
+    } else {
+      setAddForm(prev => ({ ...prev, image: file }));
+    }
+  };
 
   async function handleAddItem() {
     if (!storeId) {
-      toast.error('Please select a store first')
-      return
+      toast.error('Please select a store first');
+      return;
     }
     
     setAddError('');
@@ -382,19 +729,17 @@ function MenuContent() {
     if (!addForm.food_category_item.trim() && !addForm.customCategory.trim()) 
       return setAddError('Please select a food item or enter custom category');
     if (!addForm.actual_price.trim()) return setAddError('Actual price is required');
-    if (addForm.offer_percent && !addForm.actual_price) return setAddError('Actual price is required if offer percent is set');
+    if (addForm.offer_percent !== '' && (isNaN(Number(addForm.offer_percent)) || Number(addForm.offer_percent) < 0 || Number(addForm.offer_percent) > 100)) {
+      return setAddError('Offer percent must be between 0 and 100');
+    }
 
-    // Determine final food_category_item: if customCategory is filled, use that, otherwise use food_category_item
     const finalFoodCategoryItem = addForm.customCategory.trim() ? addForm.customCategory : addForm.food_category_item;
-
-    // Check if has customizations or addons
     const hasCustomizations = addForm.customizations.length > 0;
     const hasAddons = addForm.customizations.some(c => c.addons.length > 0);
 
     setIsSaving(true);
     try {
       let imageUrl = addForm.image_url;
-      // If an image file is selected, upload to R2 and get the public URL
       if (addForm.image) {
         const formData = new FormData();
         formData.append('file', addForm.image);
@@ -429,31 +774,31 @@ function MenuContent() {
         customizations,
       };
 
-      console.log('Menu Item Save: storeId', storeId);
+      console.log('Creating menu item:', newItem);
       const result = await createMenuItem({
         restaurant_id: storeId || '',
         ...newItem
       });
 
       if (result && result.item_id) {
-        setMenuItems(prev => [
-          {
-            item_id: result.item_id,
-            store_id: storeId,
-            item_name: newItem.item_name,
-            category_type: newItem.category_type,
-            food_category_item: newItem.food_category_item,
-            actual_price: newItem.actual_price,
-            offer_percent: newItem.offer_percent,
-            image_url: newItem.image_url === null ? undefined : newItem.image_url,
-            in_stock: newItem.in_stock,
-            description: newItem.description,
-            has_customization: newItem.has_customization,
-            has_addons: newItem.has_addons,
-            customizations: newItem.customizations,
-          },
-          ...prev,
-        ]);
+        const newMenuItem: MenuItem = {
+          item_id: result.item_id,
+          store_id: storeId || '',
+          item_name: newItem.item_name,
+          category_type: newItem.category_type,
+          food_category_item: newItem.food_category_item,
+          actual_price: newItem.actual_price,
+          offer_percent: newItem.offer_percent,
+          offer_price: newItem.offer_percent ? Math.round(newItem.actual_price * (1 - newItem.offer_percent / 100)) : undefined,
+          image_url: newItem.image_url || undefined,
+          in_stock: newItem.in_stock,
+          description: newItem.description,
+          has_customization: newItem.has_customization,
+          has_addons: newItem.has_addons,
+          customizations: newItem.customizations,
+        };
+        
+        setMenuItems(prev => [newMenuItem, ...prev]);
         setShowAddModal(false);
         setAddForm({ 
           item_name: '', 
@@ -487,11 +832,11 @@ function MenuContent() {
     setEditImagePreview(item.image_url || '');
     setEditForm({
       item_name: item.item_name || '',
-      category_type: item.category_type || '',
+      category_type: item.category_type as any || 'VEG',
       food_category_item: item.food_category_item || '',
       customCategory: '',
-      actual_price: item.actual_price !== undefined && item.actual_price !== null ? item.actual_price.toString() : '',
-      offer_percent: item.offer_percent !== undefined && item.offer_percent !== null ? item.offer_percent.toString() : '',
+      actual_price: item.actual_price?.toString() || '',
+      offer_percent: item.offer_percent?.toString() || '',
       description: item.description || '',
       in_stock: item.in_stock,
       image_url: item.image_url || '',
@@ -505,41 +850,53 @@ function MenuContent() {
 
   async function handleSaveEdit() {
     setEditError("");
-    // Defensive: always treat as string
-    const itemName = (editForm.item_name ?? "").toString();
-    const foodCategoryItem = (editForm.food_category_item ?? "").toString();
-    const customCategory = (editForm.customCategory ?? "").toString();
-    const actualPrice = (editForm.actual_price ?? "").toString();
-    const offerPercent = (editForm.offer_percent ?? "").toString();
-    // If offer_price is present (legacy), treat as string
-    const offerPrice = (editForm.offer_price ?? "").toString();
-    const description = (editForm.description ?? "").toString();
+    
+    if (!editingId) {
+      setEditError("No item selected for editing.");
+      return;
+    }
 
-    if (!itemName.trim()) return setEditError("Name is required");
-    if (!foodCategoryItem.trim() && !customCategory.trim())
+    const itemName = (editForm.item_name ?? "").toString().trim();
+    const foodCategoryItem = (editForm.food_category_item ?? "").toString().trim();
+    const customCategory = (editForm.customCategory ?? "").toString().trim();
+    const actualPrice = (editForm.actual_price ?? "").toString().trim();
+    const offerPercent = (editForm.offer_percent ?? "").toString().trim();
+
+    if (!itemName) return setEditError("Name is required");
+    if (!foodCategoryItem && !customCategory)
       return setEditError("Please select a food item or enter custom category");
-    if (!actualPrice.trim()) return setEditError("Actual price is required");
-    if (offerPrice && !actualPrice) return setEditError("Actual price is required if offer price is set");
+    if (!actualPrice) return setEditError("Actual price is required");
+    if (offerPercent !== '' && (isNaN(Number(offerPercent)) || Number(offerPercent) < 0 || Number(offerPercent) > 100)) {
+      return setEditError('Offer percent must be between 0 and 100');
+    }
 
-    // Check if has customizations or addons
     const hasCustomizations = Array.isArray(editForm.customizations) && editForm.customizations.length > 0;
-    const hasAddons = Array.isArray(editForm.customizations) && editForm.customizations.some((c: any) => Array.isArray(c.addons) && c.addons.length > 0);
-
-    toast.info("Saving changes... This will update the item in your menu.");
+    const hasAddons = Array.isArray(editForm.customizations) && editForm.customizations.some((c: any) => 
+      Array.isArray(c.addons) && c.addons.length > 0
+    );
 
     setIsSavingEdit(true);
     try {
       let imageUrl = editForm.image_url;
       if (editForm.image) {
-        imageUrl = editImagePreview;
+        const formData = new FormData();
+        formData.append('file', editForm.image);
+        formData.append('parent', storeId || 'unknown');
+        const uploadRes = await fetch('/api/upload/r2', {
+          method: 'POST',
+          body: formData,
+        });
+        if (!uploadRes.ok) {
+          setEditError('Image upload failed.');
+          setIsSavingEdit(false);
+          return;
+        }
+        const uploadData = await uploadRes.json();
+        imageUrl = uploadData.url;
       }
 
-      // Use offer_percent (new) or offer_price (legacy)
-      const offerPercentValue = offerPercent.trim() ? Number(offerPercent) : 0;
-      const offerPriceValue = offerPrice.trim() ? Number(offerPrice) : null;
-
-      // Determine final food_category_item: if customCategory is filled, use that, otherwise use food_category_item
-      const finalFoodCategoryItem = customCategory.trim() ? customCategory : foodCategoryItem;
+      const offerPercentValue = offerPercent ? Number(offerPercent) : 0;
+      const finalFoodCategoryItem = customCategory ? customCategory : foodCategoryItem;
 
       const updatedItem = {
         item_name: itemName,
@@ -547,43 +904,46 @@ function MenuContent() {
         food_category_item: finalFoodCategoryItem,
         actual_price: Number(actualPrice),
         offer_percent: offerPercentValue,
-        offer_price: offerPriceValue,
-        description,
+        description: editForm.description,
         in_stock: editForm.in_stock,
-        image_url: typeof imageUrl === "string" && imageUrl.startsWith("http") ? imageUrl : editForm.image_url,
+        image_url: imageUrl || null,
         has_customization: hasCustomizations,
         has_addons: hasAddons,
         customizations: Array.isArray(editForm.customizations) ? editForm.customizations : [],
       };
 
-      const result = await updateMenuItem(editingId || "", updatedItem);
+      console.log('Updating item:', editingId, 'with data:', updatedItem);
+      const result = await updateMenuItem(editingId, updatedItem);
 
-      if (result) {
-        setMenuItems((prev) =>
-          prev.map((item) =>
-            item.id === editingId
+      if (result && result.success !== false) {
+        setMenuItems(prev => 
+          prev.map(item => 
+            item.item_id === editingId 
               ? {
                   ...item,
-                  name: result.item_name,
-                  category_type: result.category_type,
-                  food_category_item: result.food_category_item,
-                  actual_price: result.actual_price,
-                  offer_percent: result.offer_percent,
-                  offer_price: result.offer_price === null ? undefined : result.offer_price,
-                  image_url: result.image_url,
-                  in_stock: result.in_stock,
-                  description: result.description,
-                  has_customization: result.has_customization,
-                  has_addons: result.has_addons,
-                  customizations: result.customizations || [],
+                  item_name: updatedItem.item_name,
+                  category_type: updatedItem.category_type,
+                  food_category_item: updatedItem.food_category_item,
+                  actual_price: updatedItem.actual_price,
+                  offer_percent: updatedItem.offer_percent,
+                  offer_price: updatedItem.offer_percent ? 
+                    Math.round(updatedItem.actual_price * (1 - updatedItem.offer_percent / 100)) : 
+                    undefined,
+                  image_url: updatedItem.image_url || item.image_url,
+                  in_stock: updatedItem.in_stock,
+                  description: updatedItem.description,
+                  has_customization: updatedItem.has_customization,
+                  has_addons: updatedItem.has_addons,
+                  customizations: updatedItem.customizations,
                 }
               : item
           )
         );
+        
         setShowEditModal(false);
         toast.success("Item updated successfully!");
       } else {
-        setEditError("Failed to update item.");
+        setEditError("Failed to update item. Please try again.");
       }
     } catch (e) {
       console.error("Error updating item:", e);
@@ -620,7 +980,6 @@ function MenuContent() {
     try {
       const result = await updateMenuItemStock(stockToggleItem.item_id, stockToggleItem.newStatus);
       if (result) {
-        // Update the menuItems state directly for instant UI feedback
         setMenuItems(prev => prev.map(item =>
           item.item_id === stockToggleItem.item_id
             ? { ...item, in_stock: stockToggleItem.newStatus }
@@ -633,39 +992,9 @@ function MenuContent() {
         toast.error('Failed to update stock status.');
       }
     } catch (error) {
-      // Only show error if the update call actually fails
       toast.error('Error updating stock status.');
     } finally {
       setIsTogglingStock(false);
-    }
-  }
-
-  const processImageFile = (file: File, isEdit: boolean = false) => {
-    const canAddImage = !imageUploadStatus || 
-      imageUploadStatus.totalUsed < 10
-
-    if (!canAddImage && !formData.image_url) {
-      setShowSubscriptionModal(true)
-      return
-    }
-
-    const reader = new FileReader()
-    reader.onloadend = () => {
-      const dataUrl = reader.result as string
-      if (isEdit) {
-        setEditImagePreview(dataUrl);
-        setEditForm(prev => ({ ...prev, image_url: dataUrl }));
-      } else {
-        setImagePreview(dataUrl);
-        setAddForm(prev => ({ ...prev, image_url: dataUrl }));
-      }
-    }
-    reader.readAsDataURL(file)
-    
-    if (isEdit) {
-      setEditForm(prev => ({ ...prev, image: file }));
-    } else {
-      setAddForm(prev => ({ ...prev, image: file }));
     }
   }
 
@@ -687,13 +1016,13 @@ function MenuContent() {
     : menuItems.filter(item => item.category_type === selectedCategory);
     
   const searchedItems = searchTerm
-    ? filteredItems.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()))
+    ? filteredItems.filter(item => item.item_name.toLowerCase().includes(searchTerm.toLowerCase()))
     : filteredItems;
 
   // Show error if no store is selected
   if (storeError) {
     return (
-      <MXLayoutWhite storeName={null} storeId={null}>
+      <MXLayoutWhite restaurantName={store?.store_name || "Unknown Store"} restaurantId={storeId || "No ID"}>
         <div className="min-h-screen bg-white flex items-center justify-center">
           <div className="text-center p-8">
             <Package size={64} className="text-gray-300 mb-4 mx-auto" />
@@ -715,7 +1044,7 @@ function MenuContent() {
   }
 
   return (
-    <MXLayoutWhite storeName={store?.store_name} storeId={storeId || ''}>
+    <MXLayoutWhite restaurantName={store?.store_name || "Unknown Store"} restaurantId={storeId || "No ID"}>
       <div className="min-h-screen bg-white">
         <Toaster />
         <style>{globalStyles}</style>
@@ -751,9 +1080,9 @@ function MenuContent() {
               <div>
                 <h1 className="text-2xl font-bold text-gray-900">Menu Items</h1>
                 <p className="text-gray-600 mt-1 text-sm">Manage your store menu items</p>
-                {store && (
-                  <p className="text-xs text-gray-500 mt-1">Store: {store.store_name} ({store.store_id})</p>
-                )}
+                <p className="text-xs text-gray-500 mt-1">
+                  Store: {store?.store_name || "Unknown Store"} ({storeId || "No ID"})
+                </p>
               </div>
               <div className="flex flex-col md:flex-row items-start md:items-center gap-4">
                 <div className={`bg-gray-50 px-4 py-3 rounded-lg border border-gray-200`}>
@@ -969,6 +1298,85 @@ function MenuContent() {
           ))}
         </div>
 
+        {/* Modals */}
+        {/* Add Item Modal */}
+        {showAddModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+            <div onClick={e => e.stopPropagation()}>
+              <ItemForm
+                isEdit={false}
+                formData={addForm}
+                setFormData={setAddForm}
+                imagePreview={imagePreview}
+                setImagePreview={setImagePreview}
+                onProcessImage={(file) => processImageFile(file, false)}
+                onSubmit={handleAddItem}
+                onCancel={() => {
+                  setShowAddModal(false);
+                  setAddForm({ 
+                    item_name: '', 
+                    category_type: 'VEG', 
+                    food_category_item: '', 
+                    customCategory: '', 
+                    actual_price: '', 
+                    offer_percent: '', 
+                    description: '', 
+                    in_stock: true, 
+                    image_url: '', 
+                    image: null, 
+                    has_customization: false,
+                    has_addons: false,
+                    customizations: [] 
+                  });
+                  setImagePreview('');
+                }}
+                isSaving={isSaving}
+                error={addError}
+                title="Add New Menu Item"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Edit Item Modal */}
+        {showEditModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+            <div onClick={e => e.stopPropagation()}>
+              <ItemForm
+                isEdit={true}
+                formData={editForm}
+                setFormData={setEditForm}
+                imagePreview={editImagePreview}
+                setImagePreview={setEditImagePreview}
+                onProcessImage={(file) => processImageFile(file, true)}
+                onSubmit={handleSaveEdit}
+                onCancel={() => {
+                  setShowEditModal(false);
+                  setEditForm({
+                    item_name: '',
+                    category_type: 'VEG',
+                    food_category_item: '',
+                    customCategory: '',
+                    actual_price: '',
+                    offer_percent: '',
+                    description: '',
+                    in_stock: true,
+                    image_url: '',
+                    image: null,
+                    has_customization: false,
+                    has_addons: false,
+                    customizations: [],
+                  });
+                  setEditImagePreview('');
+                }}
+                isSaving={isSavingEdit}
+                error={editError}
+                title="Edit Menu Item"
+              />
+            </div>
+          </div>
+        )}
+
         {/* View Customizations Modal */}
         {viewCustModal.open && viewCustModal.item && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setViewCustModal({ open: false, item: null })}>
@@ -1018,446 +1426,6 @@ function MenuContent() {
                   <div className="text-gray-500 text-sm">No customizations available.</div>
                 )}
               </div>
-            </div>
-          </div>
-        )}
-
-        {/* Add Item Modal */}
-        {showAddModal && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-            onClick={e => {
-              if (e.target === e.currentTarget) setShowAddModal(false);
-            }}
-          >
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl mx-2 md:mx-0 p-0 md:p-0 border border-gray-100 relative animate-fadeIn"
-              style={{ minWidth: 0 }}
-              onClick={e => e.stopPropagation()}
-            >
-              {/* Header */}
-              <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
-                <div>
-                  <h2 className="text-lg md:text-xl font-bold text-gray-900">Add New Menu Item</h2>
-                  <p className="text-xs md:text-sm text-gray-500 mt-0.5">Enter details for the new menu item</p>
-                </div>
-                <button
-                  onClick={() => setShowAddModal(false)}
-                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                  tabIndex={0}
-                  aria-label="Close"
-                >
-                  <X size={20} className="text-gray-600" />
-                </button>
-              </div>
-              {/* Form */}
-              <form className="px-5 py-4 max-h-[70vh] overflow-y-auto" autoComplete="off" onSubmit={e => { e.preventDefault(); handleAddItem(); }}>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2">
-                  {/* Item Name */}
-                  <div className="flex flex-col gap-2">
-                    <label className="text-xs font-semibold text-gray-700">Item Name *</label>
-                    <input
-                      type="text"
-                      placeholder="Enter item name"
-                      className="w-full px-3 py-1.5 border border-gray-200 rounded-md focus:border-orange-400 focus:ring-1 focus:ring-orange-100 text-sm text-gray-900"
-                      value={addForm.item_name}
-                      onChange={e => setAddForm(f => ({ ...f, item_name: e.target.value }))}
-                      required
-                    />
-                  </div>
-                  
-                  {/* Description */}
-                  <div className="flex flex-col gap-2">
-                    <label className="text-xs font-semibold text-gray-700">Description (Optional)</label>
-                    <textarea
-                      placeholder="Enter description"
-                      className="w-full px-3 py-1.5 border border-gray-200 rounded-md focus:border-orange-400 focus:ring-1 focus:ring-orange-100 text-sm text-gray-900 min-h-[38px] resize-none"
-                      value={addForm.description}
-                      onChange={e => setAddForm(f => ({ ...f, description: e.target.value }))}
-                      rows={2}
-                    />
-                  </div>
-                  
-                  {/* Category Type */}
-                  <div className="flex flex-col gap-2">
-                    <label className="text-xs font-semibold text-gray-700">Category Type *</label>
-                    <select
-                      className="w-full px-3 py-1.5 border border-gray-200 rounded-md focus:border-orange-400 focus:ring-1 focus:ring-orange-100 text-sm text-gray-900"
-                      value={addForm.category_type}
-                      onChange={e => setAddForm(f => ({ ...f, category_type: e.target.value }))}
-                      required
-                    >
-                      <option value="VEG">Veg</option>
-                      <option value="NON_VEG">Non-Veg</option>
-                      <option value="BEVERAGES">Beverages</option>
-                      <option value="DESSERTS">Desserts</option>
-                      <option value="OTHER">Other</option>
-                    </select>
-                  </div>
-                  
-                  {/* Food Category Item Dropdown */}
-                  <div className="flex flex-col gap-2">
-                    <label className="text-xs font-semibold text-gray-700">Food Item *</label>
-                    <select
-                      className="w-full px-3 py-1.5 border border-gray-200 rounded-md focus:border-orange-400 focus:ring-1 focus:ring-orange-100 text-sm text-gray-900"
-                      value={addForm.food_category_item}
-                      onChange={e => {
-                        const value = e.target.value;
-                        setAddForm(f => ({ 
-                          ...f, 
-                          food_category_item: value,
-                          customCategory: value === 'other_custom' ? f.customCategory : '' 
-                        }));
-                      }}
-                      required
-                    >
-                      <option value="">Select a food item</option>
-                      {CATEGORY_ITEMS.map(item => (
-                        <option key={item} value={item}>{item}</option>
-                      ))}
-                      <option value="other_custom">Other (Type your own)</option>
-                    </select>
-                    
-                    {/* Custom category input - Only show when "Other (Type your own)" is selected */}
-                    {addForm.food_category_item === 'other_custom' && (
-                      <input
-                        type="text"
-                        placeholder="Enter custom food item name"
-                        className="w-full px-3 py-1.5 border border-gray-200 rounded-md focus:border-orange-400 focus:ring-1 focus:ring-orange-100 text-sm text-gray-900 mt-1"
-                        value={addForm.customCategory}
-                        onChange={e => setAddForm(f => ({ ...f, customCategory: e.target.value }))}
-                        required
-                      />
-                    )}
-                  </div>
-                  
-                  {/* Image */}
-                  <div className="flex flex-col gap-2">
-                    <label className="text-xs font-semibold text-gray-700">Image (Optional)</label>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="w-full text-gray-700 file:mr-2 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-orange-50 file:text-orange-700 hover:file:bg-orange-100"
-                      style={{ color: '#222' }}
-                      onChange={e => {
-                        const file = e.target.files && e.target.files[0];
-                        if (file) {
-                          processImageFile(file, false);
-                        }
-                      }}
-                    />
-                    {imagePreview && (
-                      <img src={imagePreview} alt="Preview" className="mt-1 w-16 h-16 object-cover rounded-md border" />
-                    )}
-                  </div>
-                  
-                  {/* Actual Price */}
-                  <div className="flex flex-col gap-2">
-                    <label className="text-xs font-semibold text-gray-700">Actual Price *</label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      placeholder="Enter actual price"
-                      className="w-full px-3 py-1.5 border border-gray-200 rounded-md focus:border-orange-400 focus:ring-1 focus:ring-orange-100 text-sm text-gray-900"
-                      value={addForm.actual_price}
-                      onChange={e => setAddForm(f => ({ ...f, actual_price: e.target.value }))}
-                      required
-                    />
-                  </div>
-                  
-                  {/* Offer Percent */}
-                  <div className="flex flex-col gap-2">
-                    <label className="text-xs font-semibold text-gray-700">Offer Percent (Optional)</label>
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      step="0.01"
-                      placeholder="Enter offer percent (e.g. 10 for 10% off)"
-                      className="w-full px-3 py-1.5 border border-gray-200 rounded-md focus:border-orange-400 focus:ring-1 focus:ring-orange-100 text-sm text-gray-900"
-                      value={addForm.offer_percent}
-                      onChange={e => setAddForm(f => ({ ...f, offer_percent: e.target.value }))}
-                    />
-                    <span className="text-xs text-gray-400">Leave empty if no offer</span>
-                  </div>
-                  
-                  {/* Stock Status */}
-                  <div className="flex flex-col gap-2">
-                    <label className="text-xs font-semibold text-gray-700">Stock Status</label>
-                    <div className="flex items-center gap-2">
-                      <label className="inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={addForm.in_stock}
-                          onChange={e => setAddForm(f => ({ ...f, in_stock: e.target.checked }))}
-                          className="sr-only peer"
-                        />
-                        <div className={`w-8 h-4 bg-gray-200 rounded-full peer peer-checked:bg-green-500 transition-all relative`}>
-                          <div className={`absolute left-0.5 top-0.5 w-3 h-3 bg-white rounded-full shadow-md transition-transform ${addForm.in_stock ? 'translate-x-4' : ''}`}></div>
-                        </div>
-                      </label>
-                      <span className={`text-xs font-semibold ${addForm.in_stock ? 'text-green-600' : 'text-red-600'}`}>
-                        {addForm.in_stock ? 'In Stock' : 'Out of Stock'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                
-                {addError && <div className="text-red-600 text-xs font-bold mt-2">{addError}</div>}
-                
-                {/* Customizations Section */}
-                <div className="mt-4">
-                  <label className="block text-sm font-bold text-gray-800 mb-1">Customizations & Addons (Optional)</label>
-                  <div className="bg-gray-50 border border-gray-100 rounded-lg p-3">
-                    <CustomizationEditor
-                      customizations={addForm.customizations}
-                      setCustomizations={customizations => setAddForm(f => ({ ...f, customizations }))}
-                    />
-                  </div>
-                </div>
-                
-                {/* Footer */}
-                <div className="flex items-center justify-end gap-2 mt-5">
-                  <button
-                    className="px-5 py-1.5 rounded-md font-bold text-gray-600 bg-white border border-gray-200 hover:bg-gray-100 transition-all text-sm"
-                    onClick={() => setShowAddModal(false)}
-                    type="button"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    className={`px-7 py-1.5 rounded-md font-bold text-white transition-all text-sm ${
-                      isSaving || !addForm.item_name.trim() || !addForm.actual_price.trim() || 
-                      (!addForm.food_category_item && !addForm.customCategory)
-                        ? 'bg-orange-200 cursor-not-allowed' : 'bg-orange-500 hover:bg-orange-600'
-                    }`}
-                    onClick={handleAddItem}
-                    disabled={
-                      isSaving || !addForm.item_name.trim() || !addForm.actual_price.trim() || 
-                      (!addForm.food_category_item && !addForm.customCategory)
-                    }
-                    type="submit"
-                  >
-                    {isSaving ? 'Saving...' : 'Save'}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {/* Edit Item Modal */}
-        {showEditModal && (
-          <div className="fixed inset-0 flex items-center justify-center z-50 bg-black/40">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl mx-2 md:mx-0 p-0 md:p-0 border border-gray-100 relative animate-fadeIn">
-              {/* Header */}
-              <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
-                <div>
-                  <h2 className="text-lg md:text-xl font-bold text-gray-900">Edit Menu Item</h2>
-                  <p className="text-xs md:text-sm text-gray-500 mt-0.5">Update details for this menu item</p>
-                </div>
-                <button
-                  onClick={() => setShowEditModal(false)}
-                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                  tabIndex={0}
-                  aria-label="Close"
-                >
-                  <X size={20} className="text-gray-600" />
-                </button>
-              </div>
-              {/* Form */}
-              <form className="px-5 py-4 max-h-[70vh] overflow-y-auto" autoComplete="off" onSubmit={e => { e.preventDefault(); handleSaveEdit(); }}>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2">
-                  {/* Item Name */}
-                  <div className="flex flex-col gap-2">
-                    <label className="text-xs font-semibold text-gray-700">Item Name *</label>
-                    <input
-                      type="text"
-                      placeholder="Enter item name"
-                      className="w-full px-3 py-1.5 border border-gray-200 rounded-md focus:border-orange-400 focus:ring-1 focus:ring-orange-100 text-sm text-gray-900"
-                      value={editForm.item_name}
-                      onChange={e => setEditForm(f => ({ ...f, item_name: e.target.value }))}
-                      required
-                    />
-                  </div>
-                  
-                  {/* Description */}
-                  <div className="flex flex-col gap-2">
-                    <label className="text-xs font-semibold text-gray-700">Description (Optional)</label>
-                    <textarea
-                      placeholder="Enter description"
-                      className="w-full px-3 py-1.5 border border-gray-200 rounded-md focus:border-orange-400 focus:ring-1 focus:ring-orange-100 text-sm text-gray-900 min-h-[38px] resize-none"
-                      value={editForm.description}
-                      onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))}
-                      rows={2}
-                    />
-                  </div>
-                  
-                  {/* Category Type */}
-                  <div className="flex flex-col gap-2">
-                    <label className="text-xs font-semibold text-gray-700">Category Type *</label>
-                    <select
-                      className="w-full px-3 py-1.5 border border-gray-200 rounded-md focus:border-orange-400 focus:ring-1 focus:ring-orange-100 text-sm text-gray-900"
-                      value={editForm.category_type}
-                      onChange={e => setEditForm(f => ({ ...f, category_type: e.target.value }))}
-                      required
-                    >
-                      <option value="VEG">Veg</option>
-                      <option value="NON_VEG">Non-Veg</option>
-                      <option value="BEVERAGES">Beverages</option>
-                      <option value="DESSERTS">Desserts</option>
-                      <option value="OTHER">Other</option>
-                    </select>
-                  </div>
-                  
-                  {/* Food Category Item Dropdown */}
-                  <div className="flex flex-col gap-2">
-                    <label className="text-xs font-semibold text-gray-700">Food Item *</label>
-                    <select
-                      className="w-full px-3 py-1.5 border border-gray-200 rounded-md focus:border-orange-400 focus:ring-1 focus:ring-orange-100 text-sm text-gray-900"
-                      value={editForm.food_category_item}
-                      onChange={e => {
-                        const value = e.target.value;
-                        setEditForm(f => ({ 
-                          ...f, 
-                          food_category_item: value,
-                          customCategory: value === 'other_custom' ? f.customCategory : '' 
-                        }));
-                      }}
-                      required
-                    >
-                      <option value="">Select a food item</option>
-                      {CATEGORY_ITEMS.map(item => (
-                        <option key={item} value={item}>{item}</option>
-                      ))}
-                      <option value="other_custom">Other (Type your own)</option>
-                    </select>
-                    
-                    {/* Custom category input - Only show when "Other (Type your own)" is selected */}
-                    {editForm.food_category_item === 'other_custom' && (
-                      <input
-                        type="text"
-                        placeholder="Enter custom food item name"
-                        className="w-full px-3 py-1.5 border border-gray-200 rounded-md focus:border-orange-400 focus:ring-1 focus:ring-orange-100 text-sm text-gray-900 mt-1"
-                        value={editForm.customCategory}
-                        onChange={e => setEditForm(f => ({ ...f, customCategory: e.target.value }))}
-                        required
-                      />
-                    )}
-                  </div>
-                  
-                  {/* Image */}
-                  <div className="flex flex-col gap-2">
-                    <label className="text-xs font-semibold text-gray-700">Image (Optional)</label>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="w-full text-gray-700 file:mr-2 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-orange-50 file:text-orange-700 hover:file:bg-orange-100"
-                      style={{ color: '#222' }}
-                      onChange={e => {
-                        const file = e.target.files && e.target.files[0];
-                        if (file) {
-                          processImageFile(file, true);
-                        }
-                      }}
-                    />
-                    {editImagePreview && (
-                      <img src={editImagePreview} alt="Preview" className="mt-1 w-16 h-16 object-cover rounded-md border" />
-                    )}
-                  </div>
-                  
-                  {/* Actual Price */}
-                  <div className="flex flex-col gap-2">
-                    <label className="text-xs font-semibold text-gray-700">Actual Price *</label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      placeholder="Enter actual price"
-                      className="w-full px-3 py-1.5 border border-gray-200 rounded-md focus:border-orange-400 focus:ring-1 focus:ring-orange-100 text-sm text-gray-900"
-                      value={editForm.actual_price}
-                      onChange={e => setEditForm(f => ({ ...f, actual_price: e.target.value }))}
-                      required
-                    />
-                  </div>
-                  
-                  {/* Offer Percent */}
-                  <div className="flex flex-col gap-2">
-                    <label className="text-xs font-semibold text-gray-700">Offer Percent (Optional)</label>
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      step="0.01"
-                      placeholder="Enter offer percent (e.g. 10 for 10% off)"
-                      className="w-full px-3 py-1.5 border border-gray-200 rounded-md focus:border-orange-400 focus:ring-1 focus:ring-orange-100 text-sm text-gray-900"
-                      value={editForm.offer_percent}
-                      onChange={e => setEditForm(f => ({ ...f, offer_percent: e.target.value }))}
-                    />
-                    <span className="text-xs text-gray-400">Leave empty if no offer</span>
-                  </div>
-                  
-                  {/* Stock Status */}
-                  <div className="flex flex-col gap-2">
-                    <label className="text-xs font-semibold text-gray-700">Stock Status</label>
-                    <div className="flex items-center gap-2">
-                      <label className="inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={editForm.in_stock}
-                          onChange={e => setEditForm(f => ({ ...f, in_stock: e.target.checked }))}
-                          className="sr-only peer"
-                        />
-                        <div className={`w-8 h-4 bg-gray-200 rounded-full peer peer-checked:bg-green-500 transition-all relative`}>
-                          <div className={`absolute left-0.5 top-0.5 w-3 h-3 bg-white rounded-full shadow-md transition-transform ${editForm.in_stock ? 'translate-x-4' : ''}`}></div>
-                        </div>
-                      </label>
-                      <span className={`text-xs font-semibold ${editForm.in_stock ? 'text-green-600' : 'text-red-600'}`}>
-                        {editForm.in_stock ? 'In Stock' : 'Out of Stock'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                
-                {editError && <div className="text-red-600 text-xs font-bold mt-2">{editError}</div>}
-                
-                {/* Customizations Section */}
-                <div className="mt-4">
-                  <label className="block text-sm font-bold text-gray-800 mb-1">Customizations & Addons (Optional)</label>
-                  <div className="bg-gray-50 border border-gray-100 rounded-lg p-3">
-                    <CustomizationEditor
-                      customizations={editForm.customizations || []}
-                      setCustomizations={customizations => setEditForm(f => ({ ...f, customizations }))}
-                    />
-                  </div>
-                </div>
-                
-                {/* Footer */}
-                <div className="flex items-center justify-end gap-2 mt-5">
-                  <button
-                    className="px-5 py-1.5 rounded-md font-bold text-gray-600 bg-white border border-gray-200 hover:bg-gray-100 transition-all text-sm"
-                    onClick={() => setShowEditModal(false)}
-                    type="button"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    className={`px-7 py-1.5 rounded-md font-bold text-white transition-all text-sm ${
-                      isSavingEdit || !`${editForm.item_name || ''}`.trim() || !`${editForm.actual_price || ''}`.trim() || 
-                      (!`${editForm.food_category_item || ''}`.trim() && !`${editForm.customCategory || ''}`.trim())
-                        ? 'bg-orange-200 cursor-not-allowed' : 'bg-orange-500 hover:bg-orange-600'
-                    }`}
-                    onClick={handleSaveEdit}
-                    disabled={
-                      isSavingEdit || !`${editForm.item_name || ''}`.trim() || !`${editForm.actual_price || ''}`.trim() || 
-                      (!`${editForm.food_category_item || ''}`.trim() && !`${editForm.customCategory || ''}`.trim())
-                    }
-                    type="submit"
-                  >
-                    {isSavingEdit ? 'Saving...' : 'Save Changes'}
-                  </button>
-                </div>
-              </form>
             </div>
           </div>
         )}
