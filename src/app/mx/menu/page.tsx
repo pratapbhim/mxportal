@@ -256,6 +256,25 @@ function ItemForm({
 }) {
   const [activeTab, setActiveTab] = useState<'basic' | 'pricing' | 'customization'>('basic');
 
+  // Track if user navigated back manually
+  const [userNavigatedBack, setUserNavigatedBack] = useState(false);
+
+  // Dropdown state for food item
+  const [showFoodDropdown, setShowFoodDropdown] = useState(false);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    if (!showFoodDropdown) return;
+    function handleClick(e: MouseEvent) {
+      const target = e.target as HTMLElement;
+      if (!target.closest('.food-dropdown-root')) {
+        setShowFoodDropdown(false);
+      }
+    }
+    window.addEventListener('mousedown', handleClick);
+    return () => window.removeEventListener('mousedown', handleClick);
+  }, [showFoodDropdown]);
+
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -336,7 +355,7 @@ function ItemForm({
               <div className="flex flex-col gap-2">
                 <label className="text-xs font-semibold text-gray-700">Category Type *</label>
                 <select
-                  className="w-full px-3 py-2 border border-gray-200 rounded-md focus:border-orange-400 focus:ring-1 focus:ring-orange-100 text-sm text-gray-900"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-md focus:border-orange-400 focus:ring-1 focus:ring-orange-100 text-sm text-gray-900 custom-dropdown"
                   value={formData.category_type}
                   onChange={e => setFormData({ ...formData, category_type: e.target.value })}
                   required
@@ -352,25 +371,75 @@ function ItemForm({
               {/* Food Category Item Dropdown */}
               <div className="flex flex-col gap-2">
                 <label className="text-xs font-semibold text-gray-700">Food Item *</label>
-                <select
-                  className="w-full px-3 py-2 border border-gray-200 rounded-md focus:border-orange-400 focus:ring-1 focus:ring-orange-100 text-sm text-gray-900"
-                  value={formData.food_category_item}
-                  onChange={e => {
-                    const value = e.target.value;
-                    setFormData({ 
-                      ...formData, 
-                      food_category_item: value,
-                      customCategory: value === 'other_custom' ? formData.customCategory : '' 
-                    });
-                  }}
-                  required
-                >
-                  <option value="">Select a food item</option>
-                  {CATEGORY_ITEMS.map(item => (
-                    <option key={item} value={item}>{item}</option>
-                  ))}
-                  <option value="other_custom">Other (Type your own)</option>
-                </select>
+                <div className="relative food-dropdown-root">
+                  <button
+                    type="button"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-md text-left text-sm text-gray-900 bg-white focus:border-orange-400 focus:ring-1 focus:ring-orange-100"
+                    onClick={() => setShowFoodDropdown((prev: boolean) => !prev)}
+                    aria-haspopup="listbox"
+                    aria-expanded={showFoodDropdown}
+                  >
+                    {formData.food_category_item ? formData.food_category_item : 'Select a food item'}
+                  </button>
+                  {showFoodDropdown && (
+                    <ul
+                      className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-[180px] overflow-y-auto transition-all"
+                      style={{ top: '100%' }}
+                      tabIndex={-1}
+                      role="listbox"
+                    >
+                      <li
+                        className={`px-3 py-2 text-sm text-gray-900 cursor-pointer hover:bg-orange-50 ${!formData.food_category_item ? 'bg-orange-100' : ''}`}
+                        onClick={() => {
+                          setFormData({ ...formData, food_category_item: '', customCategory: '' });
+                          setShowFoodDropdown(false);
+                        }}
+                        role="option"
+                        aria-selected={!formData.food_category_item}
+                      >
+                        Select a food item
+                      </li>
+                      {CATEGORY_ITEMS.map(item => (
+                        <li
+                          key={item}
+                          className={`px-3 py-2 text-sm text-gray-900 cursor-pointer hover:bg-orange-50 ${formData.food_category_item === item ? 'bg-orange-100 font-semibold' : ''}`}
+                          onClick={() => {
+                            setFormData({ ...formData, food_category_item: item, customCategory: '' });
+                            setShowFoodDropdown(false);
+                          }}
+                          role="option"
+                          aria-selected={formData.food_category_item === item}
+                        >
+                          {item}
+                        </li>
+                      ))}
+                      <li
+                        className={`px-3 py-2 text-sm text-gray-900 cursor-pointer hover:bg-orange-50 ${formData.food_category_item === 'other_custom' ? 'bg-orange-100 font-semibold' : ''}`}
+                        onClick={() => {
+                          setFormData({ ...formData, food_category_item: 'other_custom' });
+                          setShowFoodDropdown(false);
+                        }}
+                        role="option"
+                        aria-selected={formData.food_category_item === 'other_custom'}
+                      >
+                        Other (Type your own)
+                      </li>
+                    </ul>
+                  )}
+                </div>
+                <style jsx global>{`
+                  /* Limit dropdown height to 5 items, keep native style */
+                  select.native-dropdown-limit:focus option {
+                    max-height: 36px;
+                  }
+                  select.native-dropdown-limit {
+                    /* This does not affect the dropdown, but keeps the select styled natively */
+                  }
+                  /* For Chrome, limit the dropdown height */
+                  select.native-dropdown-limit:focus {
+                    /* This is a visual hint, but browsers control the dropdown popup */
+                  }
+                `}</style>
                 
                 {/* Custom category input */}
                 {formData.food_category_item === 'other_custom' && (
@@ -557,7 +626,46 @@ function ItemForm({
           >
             {isSaving ? 'Saving...' : (isEdit ? 'Save Changes' : 'Save Item')}
           </button>
+          {/* Previous button (icon) */}
+          {activeTab !== 'basic' && (
+            <button
+              type="button"
+              aria-label="Previous"
+              className="px-2 py-2 rounded-md bg-gray-100 border border-gray-200 text-gray-600 hover:bg-gray-200 transition-all"
+              onClick={() => {
+                setActiveTab(
+                  activeTab === 'pricing' ? 'basic' :
+                  activeTab === 'customization' ? 'pricing' : 'basic'
+                );
+                setUserNavigatedBack(true);
+              }}
+            >
+              <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+          )}
+          {/* Next button (icon) */}
+          {activeTab !== 'customization' && (
+            <button
+              type="button"
+              aria-label="Next"
+              className="px-2 py-2 rounded-md bg-gray-100 border border-gray-200 text-gray-600 hover:bg-gray-200 transition-all"
+              onClick={() => {
+                setActiveTab(
+                  activeTab === 'basic' ? 'pricing' :
+                  activeTab === 'pricing' ? 'customization' : 'customization'
+                );
+                setUserNavigatedBack(false);
+              }}
+              disabled={
+                (activeTab === 'basic' && (!formData.item_name?.trim() || !formData.category_type?.trim() || (!formData.food_category_item?.trim() && !formData.customCategory?.trim()) || !formData.description?.trim() || typeof formData.in_stock !== 'boolean')) ||
+                (activeTab === 'pricing' && (!formData.actual_price?.trim() || isOfferPercentInvalid))
+              }
+            >
+              <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 6 15 12 9 18"/></svg>
+            </button>
+          )}
         </div>
+
       </form>
     </div>
   );

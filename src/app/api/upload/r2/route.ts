@@ -1,39 +1,58 @@
 
 import { NextRequest, NextResponse } from 'next/server';
-import { uploadToR2, getR2SignedUrl } from '@/lib/r2';
 
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
-export async function POST(req: NextRequest) {
+const s3Client = new S3Client({
+  region: process.env.R2_REGION || 'auto',
+  endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+  credentials: {
+    accessKeyId: process.env.R2_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
+  },
+});
+
+export async function POST(request: NextRequest) {
   try {
-    const form = await req.formData();
-    const file = form.get('file') as File;
-    const parent = (form.get('parent') as string) || 'unknown';
-    if (!file || !file.name) {
-      return NextResponse.json({ error: 'file required' }, { status: 400 });
+    const formData = await request.formData();
+    const file = formData.get('file') as File;
+    const parent = formData.get('parent') as string;
+    const filename = formData.get('filename') as string;
+
+    if (!file) {
+      return NextResponse.json({ error: 'No file provided' }, { status: 400 });
     }
 
-    // Prepare key for R2 - use menuitems/ prefix for menu item images
-    const timestamp = Date.now();
-    const safeName = file.name.replace(/\s+/g, '_');
-    // Organize menu item images under menuitems/ directory
-    const key = `menuitems/${parent}/${timestamp}_${safeName}`;
+    // Determine the full path
+    const filePath = filename || file.name;
+    const fullPath = parent ? `${parent}/${filePath}` : filePath;
 
-    // Use the S3-compatible upload
-    let objectKey: string | null = null;
-    try {
-      objectKey = await uploadToR2(file, key);
-    } catch (err: any) {
-      console.error('R2 upload error', err);
-      return NextResponse.json({ error: 'upload_failed', details: err?.message || String(err) }, { status: 502 });
-    }
+    // Convert file to buffer
+    const bytes = await file.arrayBuffer();
+    const buffer = Buffer.from(bytes);
 
-    // Construct the public URL for the uploaded image (R2 public bucket URL)
-    // Example: https://<account_id>.r2.cloudflarestorage.com/<bucket>/<key>
-    const publicUrl = `${process.env.R2_PUBLIC_BASE_URL}/${objectKey}`;
-    return NextResponse.json({ url: publicUrl });
-  } catch (err: any) {
-    console.error('R2 upload error', err);
-    return NextResponse.json({ error: 'unexpected_error', details: err?.message || String(err) }, { status: 500 });
+    // Upload to R2
+    const command = new PutObjectCommand({
+      Bucket: process.env.R2_BUCKET_NAME!,
+      Key: fullPath,
+      Body: buffer,
+      ContentType: file.type,
+    });
+
+    await s3Client.send(command);
+
+    // Generate signed URL
+    const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 * 24 * 7 }); // 7 days
+
+    return NextResponse.json({ 
+      url: signedUrl,
+      path: fullPath 
+    });
+
+  } catch (error) {
+    console.error('Upload error:', error);
+    return NextResponse.json({ error: 'Upload failed' }, { status: 500 });
   }
 }
 

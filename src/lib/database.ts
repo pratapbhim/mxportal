@@ -1,175 +1,13 @@
-// Alias for compatibility - maintain old function names for existing code
-// ...existing code...
-// ...existing code...
-// Fetch all approved/rejected stores with optional date range
-export const fetchManagedStores = async (fromDate?: string, toDate?: string) => {
-  let query = supabase
-    .from('merchant_store')
-    .select('*')
-    .in('approval_status', ['APPROVED', 'REJECTED'])
-    .order('created_at', { ascending: false });
-  if (fromDate) query = query.gte('created_at', fromDate + 'T00:00:00');
-  if (toDate) query = query.lte('created_at', toDate + 'T23:59:59');
-  const { data, error } = await query;
-  if (error) {
-    console.error('Error fetching managed stores:', error);
-    return [];
-  }
-  return data || [];
-};
-// Fetch store counts for dashboard metrics with optional date range
-export const fetchStoreCounts = async (fromDate?: string, toDate?: string) => {
-  let query = supabase
-    .from('merchant_store')
-    .select('approval_status, created_at', { count: 'exact', head: false });
-  if (fromDate) query = query.gte('created_at', fromDate + 'T00:00:00');
-  if (toDate) query = query.lte('created_at', toDate + 'T23:59:59');
-  const { data, error } = await query;
-  if (error) {
-    console.error('Error fetching store counts:', error);
-    return { total: 0, pending: 0, verified: 0, rejected: 0 };
-  }
-  let total = 0, pending = 0, verified = 0, rejected = 0;
-  (data || []).forEach((row: any) => {
-    total++;
-    if (row.approval_status === 'APPROVED') verified++;
-    else if (row.approval_status === 'REJECTED') rejected++;
-    else pending++;
-  });
-  return { total, pending, verified, rejected };
-};
-// ============================================
-// OFFERS QUERIES
-// ============================================
-
-export interface Offer {
-  id: string;
-  restaurant_id: string;
-  offer_type: 'ALL_ORDERS' | 'ITEM_LEVEL';
-  discount_type: 'PERCENTAGE' | 'FIXED_AMOUNT';
-  discount_value: number;
-  item_name?: string;
-  min_order_amount?: number;
-  valid_from: string;
-  valid_till: string;
-  is_active: boolean;
-  usage_count: number;
-  created_at?: string;
-  updated_at?: string;
-}
-
-export const fetchActiveOffers = async (restaurantId: string): Promise<Offer[]> => {
-  try {
-    const { data, error } = await supabase
-      .from('offers')
-      .select('*')
-      .eq('restaurant_id', restaurantId)
-      .order('created_at', { ascending: false });
-    if (error) {
-      if (typeof error === 'object' && error !== null) {
-        console.error('Error fetching offers:', JSON.stringify(error, null, 2));
-      } else {
-        console.error('Error fetching offers:', error);
-      }
-      return [];
-    }
-    return data || [];
-  } catch (error) {
-    if (typeof error === 'object' && error !== null) {
-      console.error('Error fetching offers (exception):', JSON.stringify(error, null, 2));
-    } else {
-      console.error('Error fetching offers (exception):', error);
-    }
-    return [];
-  }
-};
-
-export const createOffer = async (offer: Partial<Offer>): Promise<Offer | null> => {
-  try {
-    // Always set usage_count to 0 for new offers
-    const insertPayloadRaw = { ...offer, usage_count: 0 };
-    // Remove undefined/null fields and bannerImage (not in offers table)
-    const insertPayload: Record<string, any> = {};
-    Object.entries(insertPayloadRaw).forEach(([k, v]) => {
-      if (k === 'bannerImage') return; // skip bannerImage, not in DB
-      if (v !== undefined && v !== null && v !== '') insertPayload[k] = v;
-    });
-    const { data, error } = await supabase
-      .from('offers')
-      .insert([insertPayload])
-      .select()
-      .single();
-    if (error) {
-      if (typeof error === 'object' && error !== null) {
-        console.error('Error creating offer:', JSON.stringify(error, null, 2));
-      } else {
-        console.error('Error creating offer:', error);
-      }
-      return null;
-    }
-    return data as Offer;
-  } catch (error) {
-    console.error('Error creating offer:', error);
-    return null;
-  }
-};
-
-export const updateOffer = async (id: string, updates: Partial<Offer>): Promise<Offer | null> => {
-  try {
-    const { data, error } = await supabase
-      .from('offers')
-      .update(updates)
-      .eq('id', id)
-      .select()
-      .single();
-    if (error) throw error;
-    return data as Offer;
-  } catch (error) {
-    console.error('Error updating offer:', error);
-    return null;
-  }
-};
-
-export const deleteOffer = async (id: string): Promise<boolean> => {
-  try {
-    const { error } = await supabase
-      .from('offers')
-      .delete()
-      .eq('id', id);
-    if (error) throw error;
-    return true;
-  } catch (error) {
-    console.error('Error deleting offer:', error);
-    return false;
-  }
-};
-
-export const subscribeToOffers = (restaurantId: string, callback: (offer: Offer) => void) => {
-  return supabase
-    .channel(`offers:${restaurantId}`)
-    .on(
-      'postgres_changes',
-      {
-        event: '*',
-        schema: 'public',
-        table: 'offers',
-        filter: `restaurant_id=eq.${restaurantId}`,
-      },
-      (payload: any) => {
-        callback(payload.new as Offer);
-      }
-    )
-    .subscribe();
-};
-// ============================================
-// GATIMITRA FOOD ORDERS - DATABASE UTILITIES
-// ============================================
+// src/lib/database.ts
 
 import { supabase } from './supabase'
-import { FoodOrder, OrderStats, Restaurant } from './types'
-import { MerchantStore } from './merchantStore';
+import { FoodOrder, OrderStats } from './types'
+import { MerchantStore } from './types'
 
-// Export fetchStoreById for compatibility with menu page
+// ============================================
+// MERCHANT STORE QUERIES
+// ============================================
+
 export const fetchStoreById = async (storeId: string): Promise<MerchantStore | null> => {
   try {
     const { data, error } = await supabase
@@ -182,43 +20,6 @@ export const fetchStoreById = async (storeId: string): Promise<MerchantStore | n
   } catch (error) {
     console.error('Error fetching store:', error);
     return null;
-  }
-}
-
-// ============================================
-// RESTAURANT QUERIES
-// ============================================
-
-export const fetchRestaurantById = async (storeId: string): Promise<MerchantStore | null> => {
-  try {
-    const { data, error } = await supabase
-      .from('merchant_store')
-      .select('*')
-      .eq('store_id', storeId)
-      .single();
-    if (error) throw error;
-    return data as MerchantStore;
-  } catch (error) {
-    console.error('Error fetching store:', error);
-    return null;
-  }
-}
-
-export const fetchAllStores = async (): Promise<MerchantStore[]> => {
-  try {
-    const { data, error } = await supabase
-      .from('merchant_store')
-      .select('*')
-      .order('created_at', { ascending: false });
-    if (error) throw error;
-    return data as MerchantStore[];
-  } catch (error: any) {
-    if (error instanceof Error) {
-      console.error('Error fetching stores:', error.message, error.stack);
-    } else {
-      console.error('Error fetching stores:', JSON.stringify(error));
-    }
-    return [];
   }
 }
 
@@ -240,12 +41,23 @@ export const fetchStoreByName = async (storeName: string): Promise<MerchantStore
   }
 }
 
+export const fetchAllStores = async (): Promise<MerchantStore[]> => {
+  try {
+    const { data, error } = await supabase
+      .from('merchant_store')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return data as MerchantStore[];
+  } catch (error: any) {
+    console.error('Error fetching stores:', error.message, error.stack);
+    return [];
+  }
+}
+
 export const registerStore = async (store: Partial<MerchantStore>): Promise<{ data: MerchantStore | null, error: any }> => {
   try {
-    // Ensure all required fields are present (add more as needed)
-    const requiredFields = [
-      'store_name', 'owner_name', 'city', 'state'
-    ];
+    const requiredFields = ['store_name', 'owner_name', 'city', 'state'];
     for (const field of requiredFields) {
       if (!store[field as keyof typeof store]) {
         console.error('Missing required field:', field);
@@ -259,7 +71,7 @@ export const registerStore = async (store: Partial<MerchantStore>): Promise<{ da
       .single();
     return { data: data as MerchantStore, error };
   } catch (error) {
-    console.error('Error registering store (exception):', JSON.stringify(error, null, 2));
+    console.error('Error registering store:', error);
     return { data: null, error };
   }
 }
@@ -281,476 +93,310 @@ export const updateStoreInfo = async (storeId: string, updates: Partial<Merchant
   }
 }
 
-export const getRestaurantStats = async (restaurantId: string) => {
+// ============================================
+// OFFERS QUERIES (FIXED)
+// ============================================
+
+// Offer type (strictly matches DB schema)
+export interface Offer {
+  offer_id: string;
+  store_id: number; // bigint
+  offer_title: string;
+  offer_description: string | null;
+  offer_type: 'BUY_N_GET_M' | 'PERCENTAGE' | 'FLAT' | 'COUPON' | 'FREE_ITEM';
+  offer_sub_type: 'ALL_ORDERS' | 'SPECIFIC_ITEM';
+  menu_item_ids: string[] | null;
+  discount_value: string | null; // numeric(10,2) comes as string
+  min_order_amount: string | null; // numeric(10,2) comes as string
+  buy_quantity: number | null;
+  get_quantity: number | null;
+  coupon_code: string | null;
+  image_url: string | null;
+  valid_from: string;
+  valid_till: string;
+  is_active: boolean | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Fetch active offers for a store
+// (removed duplicate fetchActiveOffers)
+//
+export const fetchActiveOffers = async (storeId: string): Promise<Offer[]> => {
   try {
-    const { data: restaurant, error: restaurantError } = await supabase
-      .from('restaurants')
-      .select('*')
-      .eq('restaurant_id', restaurantId)
-      .single()
-
-    if (restaurantError) throw restaurantError
-
-    return {
-      restaurant_id: restaurant.restaurant_id,
-      restaurant_name: restaurant.restaurant_name,
-      owner_name: restaurant.owner_name,
-      email: restaurant.email,
-      phone: restaurant.phone,
-      city: restaurant.city,
-      avg_rating: restaurant.avg_rating,
-      total_reviews: restaurant.total_reviews,
-      total_orders: restaurant.total_orders,
-      is_verified: restaurant.is_verified,
-      is_active: restaurant.is_active,
-      created_at: restaurant.created_at,
+    // Resolve bigint id from merchant_store
+    const { data: storeData, error: storeError } = await supabase
+      .from('merchant_store')
+      .select('id')
+      .eq('store_id', storeId)
+      .single();
+    if (storeError || !storeData) {
+      throw storeError || new Error('Store not found');
     }
+    const storeBigIntId = storeData.id;
+    const { data, error } = await supabase
+      .from('offers')
+      .select('*')
+      .eq('store_id', storeBigIntId)
+      .eq('is_active', true)
+      .gte('valid_till', new Date().toISOString())
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return data || [];
   } catch (error) {
-    console.error('Error getting restaurant stats:', error)
-    return null
+    console.error('Error fetching offers:', error);
+    return [];
+  }
+};
+// Fetch all offers (including inactive) for a store
+export async function fetchAllOffers(storeId: string): Promise<Offer[]> {
+  try {
+    // Get store's internal ID (bigint) from store_id (text)
+    const { data: storeData, error: storeError } = await supabase
+      .from('merchant_store')
+      .select('id')
+      .eq('store_id', storeId)
+      .single();
+
+    if (storeError || !storeData) {
+      console.error('Store not found for ID:', storeId);
+      return [];
+    }
+
+    const { data, error } = await supabase
+      .from('offers')
+      .select('*')
+      .eq('store_id', storeData.id)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching all offers:', error);
+      return [];
+    }
+    return data as Offer[] || [];
+  } catch (error) {
+    console.error('Error in fetchAllOffers:', error);
+    return [];
   }
 }
 
-export const subscribeToRestaurantData = (
-  restaurantId: string,
-  callback: (restaurant: Restaurant) => void
-) => {
-  return supabase
-    .channel(`restaurant:${restaurantId}`)
-    .on(
-      'postgres_changes',
-      {
-        event: '*',
-        schema: 'public',
-        table: 'restaurants',
-        filter: `restaurant_id=eq.${restaurantId}`,
-      },
-      (payload: any) => {
-        callback(payload.new as Restaurant)
+
+
+// Create new offer
+export async function createOffer(offerData: any): Promise<Offer | null> {
+  try {
+    // IMPORTANT: The frontend must always send a valid store_id in offerData.
+    if (!offerData.store_id) {
+      const errMsg = 'Offer creation failed: store_id is required. The frontend must always send store_id.';
+      console.error('createOffer: Missing store_id in offerData:', offerData);
+      return { error: errMsg } as any;
+    }
+    let storeBigIntId: number | null = null;
+    if (typeof offerData.store_id === 'number') {
+      storeBigIntId = offerData.store_id;
+    } else if (typeof offerData.store_id === 'string') {
+      const { data: storeData, error: storeError, status } = await supabase
+        .from('merchant_store')
+        .select('id')
+        .eq('store_id', offerData.store_id)
+        .single();
+      if (storeError || !storeData) {
+        console.error('[createOffer] merchant_store lookup failed:', {
+          input_store_id: offerData.store_id,
+          storeError,
+          status,
+          storeData
+        });
+        if (storeError && storeError.code === 'PGRST116') {
+          // RLS: row not visible to this user/session
+          console.error('[createOffer] RLS may be blocking access to merchant_store for this store_id.');
+        }
+        return null;
       }
-    )
-    .subscribe()
-}
-
-// ============================================
-// FOOD ORDER QUERIES
-// ============================================
-
-export const fetchFoodOrdersByRestaurant = async (
-  restaurantId: string,
-  status?: string,
-  limit = 50
-): Promise<FoodOrder[]> => {
-  try {
-    console.log('🔍 Fetching orders for restaurant ID:', restaurantId)
-    
-    let query = supabase
-      .from('food_orders')
-      .select('*')
-      .eq('restaurant_id', restaurantId)
-      .order('created_at', { ascending: false })
-      .limit(limit)
-
-    if (status) {
-      query = query.eq('status', status)
+      storeBigIntId = storeData.id;
+    }
+    if (!storeBigIntId) {
+      console.error('[createOffer] Could not resolve store_id (bigint) for offer creation. Input:', offerData);
+      return null;
     }
 
-    const { data, error } = await query
+    // Prepare payload strictly per schema
+    const payload = {
+      store_id: storeBigIntId,
+      offer_title: offerData.offer_title,
+      offer_description: offerData.offer_description ?? null,
+      offer_type: offerData.offer_type,
+      offer_sub_type: offerData.offer_sub_type,
+      menu_item_ids: offerData.menu_item_ids ?? null,
+      discount_value: offerData.discount_value ?? null,
+      min_order_amount: offerData.min_order_amount ?? null,
+      buy_quantity: offerData.buy_quantity ?? null,
+      get_quantity: offerData.get_quantity ?? null,
+      coupon_code: offerData.coupon_code ?? null,
+      image_url: offerData.image_url ?? null,
+      valid_from: offerData.valid_from,
+      valid_till: offerData.valid_till,
+      is_active: offerData.is_active ?? true
+    };
 
-    if (error) {
-      console.error('❌ Supabase error fetching orders:', error?.message || error)
-      throw error
-    }
-    
-    console.log('✅ Orders fetched:', data?.length || 0, 'records')
-    return (data || []) as FoodOrder[]
-  } catch (error: any) {
-    console.error('Error fetching food orders:', error?.message || error)
-    return []
-  }
-}
-
-// Alternative fetch by restaurant name (case-insensitive)
-export const fetchFoodOrdersByRestaurantName = async (
-  restaurantName: string,
-  status?: string,
-  limit = 50
-): Promise<FoodOrder[]> => {
-  try {
-    console.log('🔍 Fetching orders for restaurant NAME:', restaurantName)
-    
-    let query = supabase
-      .from('food_orders')
-      .select('*')
-      .ilike('restaurant_name', `%${restaurantName}%`)
-      .order('created_at', { ascending: false })
-      .limit(limit)
-
-    if (status) {
-      query = query.eq('status', status)
-    }
-
-    const { data, error } = await query
-
-    if (error) {
-      console.error('❌ Supabase error fetching orders by name:', error?.message || error)
-      throw error
-    }
-    
-    console.log('✅ Orders fetched by name:', data?.length || 0, 'records')
-    return (data || []) as FoodOrder[]
-  } catch (error: any) {
-    console.error('Error fetching food orders by name:', error?.message || error)
-    return []
-  }
-}
-
-export const fetchOrderById = async (orderId: string): Promise<FoodOrder | null> => {
-  try {
     const { data, error } = await supabase
-      .from('food_orders')
-      .select('*')
-      .eq('id', orderId)
-      .single()
-
-    if (error) throw error
-    return data as FoodOrder
-  } catch (error) {
-    console.error('Error fetching order:', error)
-    return null
-  }
-}
-
-export const fetchOrdersByStatus = async (
-  restaurantId: string,
-  status: string
-): Promise<FoodOrder[]> => {
-  try {
-    const { data, error } = await supabase
-      .from('food_orders')
-      .select('*')
-      .eq('restaurant_id', restaurantId)
-      .eq('status', status)
-      .order('created_at', { ascending: false })
-
-    if (error) throw error
-    return data as FoodOrder[]
-  } catch (error) {
-    console.error('Error fetching orders by status:', error)
-    return []
-  }
-}
-
-export const searchOrders = async (
-  restaurantId: string,
-  query: string
-): Promise<FoodOrder[]> => {
-  try {
-    const { data, error } = await supabase
-      .from('food_orders')
-      .select('*')
-      .eq('restaurant_id', restaurantId)
-      .or(`order_number.ilike.%${query}%,user_name.ilike.%${query}%,user_phone.ilike.%${query}%`)
-      .order('created_at', { ascending: false })
-
-    if (error) throw error
-    return data as FoodOrder[]
-  } catch (error) {
-    console.error('Error searching orders:', error)
-    return []
-  }
-}
-
-// ============================================
-// ORDER MUTATIONS
-// ============================================
-
-export const updateOrderStatus = async (
-  orderId: string,
-  status: string
-): Promise<boolean> => {
-  try {
-    const { error } = await supabase
-      .from('food_orders')
-      .update({
-        status,
-        updated_at: new Date().toISOString(),
-        ...(status === 'confirmed' && { confirmed_at: new Date().toISOString() }),
-        ...(status === 'delivered' && { delivered_at: new Date().toISOString() }),
-      })
-      .eq('id', orderId)
-
-    if (error) throw error
-    return true
-  } catch (error) {
-    console.error('Error updating order status:', error)
-    return false
-  }
-}
-
-export const createFoodOrder = async (order: Partial<FoodOrder>): Promise<FoodOrder | null> => {
-  try {
-    const { data, error } = await supabase
-      .from('food_orders')
-      .insert([order])
+      .from('offers')
+      .insert([payload])
       .select()
-      .single()
+      .single();
 
-    if (error) throw error
-    return data as FoodOrder
+    if (error) {
+      console.error('Error creating offer:', error);
+      console.error('Supabase error details:', JSON.stringify(error, null, 2));
+      console.error('Payload sent:', JSON.stringify(payload, null, 2));
+      return null;
+    }
+    return data as Offer;
   } catch (error) {
-    console.error('Error creating order:', error)
-    return null
+    console.error('Error creating offer (exception):', error);
+    return null;
   }
 }
 
-export const cancelOrder = async (orderId: string): Promise<boolean> => {
+// Update offer
+export async function updateOffer(offerId: string, offerData: any): Promise<Offer | null> {
+  try {
+    const { data, error } = await supabase
+      .from('offers')
+      .update(offerData)
+      .eq('offer_id', offerId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  } catch (error) {
+    console.error('Error updating offer:', error);
+    return null;
+  }
+}
+
+// Delete offer
+export async function deleteOffer(offerId: string): Promise<boolean> {
   try {
     const { error } = await supabase
-      .from('food_orders')
-      .update({
-        status: 'cancelled',
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', orderId)
+      .from('offers')
+      .delete()
+      .eq('offer_id', offerId);
 
-    if (error) throw error
-    return true
+    if (error) throw error;
+    return true;
   } catch (error) {
-    console.error('Error cancelling order:', error)
-    return false
+    console.error('Error deleting offer:', error);
+    return false;
   }
 }
 
-// ============================================
-// DASHBOARD STATISTICS
-// ============================================
-
-export const fetchOrderStats = async (restaurantId: string): Promise<OrderStats | null> => {
+// Upload offer image to R2
+export async function uploadOfferImage(storeId: string, offerId: string, file: File): Promise<string | null> {
   try {
-    console.log('📊 Fetching order stats for restaurant ID:', restaurantId)
-    
-    const { data: orders, error } = await supabase
-      .from('food_orders')
-      .select('*')
-      .eq('restaurant_id', restaurantId)
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${storeId}_${offerId}_${Date.now()}.${fileExt}`;
+    const filePath = `offers/${fileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('offer-images')
+      .upload(filePath, file);
+
+    if (uploadError) throw uploadError;
+
+    // Get a public URL (no expiry)
+    const { data: publicUrlData } = supabase.storage
+      .from('offer-images')
+      .getPublicUrl(filePath);
+
+    if (!publicUrlData?.publicUrl) {
+      console.error('Error getting public URL for offer image.');
+      return null;
+    }
+
+    return publicUrlData.publicUrl;
+  } catch (error) {
+    console.error('Error uploading image:', error);
+    return null;
+  }
+}
+
+// Toggle offer active status
+export async function toggleOfferStatus(offerId: string, isActive: boolean): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('offers')
+      .update({ 
+        is_active: isActive,
+        updated_at: new Date().toISOString()
+      })
+      .eq('offer_id', offerId);
 
     if (error) {
-      console.error('❌ Supabase error fetching stats:', error?.message || error)
-      throw error
+      console.error('Error toggling offer status:', error);
+      return false;
     }
-
-    console.log('📈 Total orders found:', orders?.length || 0)
-
-    const foodOrders = (orders || []) as FoodOrder[]
-
-    const stats: OrderStats = {
-      total_orders: foodOrders.length,
-      pending_orders: foodOrders.filter((o) => o.status === 'pending').length,
-      confirmed_orders: foodOrders.filter((o) => o.status === 'confirmed').length,
-      preparing_orders: foodOrders.filter((o) => o.status === 'preparing').length,
-      ready_orders: foodOrders.filter((o) => o.status === 'ready').length,
-      out_for_delivery_orders: foodOrders.filter((o) => o.status === 'out_for_delivery').length,
-      delivered_orders: foodOrders.filter((o) => o.status === 'delivered').length,
-      cancelled_orders: foodOrders.filter((o) => o.status === 'cancelled').length,
-      total_revenue: foodOrders
-        .filter((o) => o.status === 'delivered')
-        .reduce((sum, o) => sum + o.total_amount, 0),
-      average_order_value:
-        foodOrders.length > 0
-          ? foodOrders.reduce((sum, o) => sum + o.total_amount, 0) / foodOrders.length
-          : 0,
-      average_rating: foodOrders.filter((o) => o.rating).length > 0
-        ? foodOrders.filter((o) => o.rating).reduce((sum, o) => sum + (o.rating || 0), 0) /
-          foodOrders.filter((o) => o.rating).length
-        : 0,
-    }
-
-    console.log('✅ Stats calculated:', stats)
-    return stats
-  } catch (error: any) {
-    console.error('Error fetching order stats:', error?.message || error)
-    return null
+    return true;
+  } catch (error) {
+    console.error('Error in toggleOfferStatus:', error);
+    return false;
   }
 }
 
-// Alternative stats by restaurant name
-export const fetchOrderStatsByRestaurantName = async (restaurantName: string): Promise<OrderStats | null> => {
-  try {
-    console.log('📊 Fetching order stats for restaurant NAME:', restaurantName)
-    
-    const { data: orders, error } = await supabase
-      .from('food_orders')
-      .select('*')
-      .ilike('restaurant_name', `%${restaurantName}%`)
-
-    if (error) {
-      console.error('❌ Supabase error fetching stats by name:', error?.message || error)
-      throw error
-    }
-
-    console.log('📈 Total orders found by name:', orders?.length || 0)
-
-    const foodOrders = (orders || []) as FoodOrder[]
-
-    const stats: OrderStats = {
-      total_orders: foodOrders.length,
-      pending_orders: foodOrders.filter((o) => o.status === 'pending').length,
-      confirmed_orders: foodOrders.filter((o) => o.status === 'confirmed').length,
-      preparing_orders: foodOrders.filter((o) => o.status === 'preparing').length,
-      ready_orders: foodOrders.filter((o) => o.status === 'ready').length,
-      out_for_delivery_orders: foodOrders.filter((o) => o.status === 'out_for_delivery').length,
-      delivered_orders: foodOrders.filter((o) => o.status === 'delivered').length,
-      cancelled_orders: foodOrders.filter((o) => o.status === 'cancelled').length,
-      total_revenue: foodOrders
-        .filter((o) => o.status === 'delivered')
-        .reduce((sum, o) => sum + o.total_amount, 0),
-      average_order_value:
-        foodOrders.length > 0
-          ? foodOrders.reduce((sum, o) => sum + o.total_amount, 0) / foodOrders.length
-          : 0,
-      average_rating: foodOrders.filter((o) => o.rating).length > 0
-        ? foodOrders.filter((o) => o.rating).reduce((sum, o) => sum + (o.rating || 0), 0) /
-          foodOrders.filter((o) => o.rating).length
-        : 0,
-    }
-
-    console.log('✅ Stats calculated by name:', stats)
-    return stats
-  } catch (error: any) {
-    console.error('Error fetching order stats by name:', error?.message || error)
-    return null
-  }
-}
-
-// ============================================
-// REALTIME SUBSCRIPTIONS
-// ============================================
-
-export const subscribeToRestaurantOrders = (
-  restaurantId: string,
-  callback: (order: FoodOrder) => void
-) => {
+// Subscribe to offer changes (real-time)
+export const subscribeToOffers = (storeId: string, callback: (offer: Offer) => void) => {
   return supabase
-    .channel(`orders:${restaurantId}`)
+    .channel(`offers:${storeId}`)
     .on(
       'postgres_changes',
       {
         event: '*',
         schema: 'public',
-        table: 'food_orders',
-        filter: `restaurant_id=eq.${restaurantId}`,
+        table: 'offers',
+        filter: `store_id=eq.${storeId}`,
       },
       (payload: any) => {
-        callback(payload.new as FoodOrder)
+        callback(payload.new as Offer);
       }
     )
-    .subscribe()
+    .subscribe();
 }
 
 // ============================================
-// BATCH OPERATIONS
+// MENU ITEMS QUERIES
 // ============================================
 
-export const fetchOrdersInDateRange = async (
-  restaurantId: string,
-  startDate: Date,
-  endDate: Date
-): Promise<FoodOrder[]> => {
-  try {
-    const { data, error } = await supabase
-      .from('food_orders')
-      .select('*')
-      .eq('restaurant_id', restaurantId)
-      .gte('created_at', startDate.toISOString())
-      .lte('created_at', endDate.toISOString())
-      .order('created_at', { ascending: false })
-
-    if (error) throw error
-    return data as FoodOrder[]
-  } catch (error) {
-    console.error('Error fetching orders in date range:', error)
-    return []
-  }
+export interface MenuItem {
+  id: string;
+  item_id: string;
+  store_id: string;
+  item_name: string;
+  description: string;
+  category_type: string;
+  food_category_item: string;
+  image_url: string | null;
+  actual_price: number;
+  offer_percent: number;
+  in_stock: boolean;
+  has_customization: boolean;
+  has_addons: boolean;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
-export const fetchPendingOrders = async (restaurantId: string): Promise<FoodOrder[]> => {
-  try {
-    const { data, error } = await supabase
-      .from('food_orders')
-      .select('*')
-      .eq('restaurant_id', restaurantId)
-      .in('status', ['pending', 'confirmed', 'preparing'])
-      .order('created_at', { ascending: true })
-
-    if (error) throw error
-    return data as FoodOrder[]
-  } catch (error) {
-    console.error('Error fetching pending orders:', error)
-    return []
-  }
-}
-
-// ============================================
-// DIAGNOSTIC FUNCTIONS
-// ============================================
-
-export const getAllOrdersInDatabase = async (): Promise<FoodOrder[]> => {
-  try {
-    console.log('🔍 Fetching ALL orders from database (diagnostic)')
-    const { data, error } = await supabase
-      .from('food_orders')
-      .select('*')
-      .limit(100)
-
-    if (error) throw error
-    
-    console.log('📊 Total orders in database:', data?.length || 0)
-    if (data && data.length > 0) {
-      console.log('📝 Sample order restaurant_ids:', data.slice(0, 3).map(o => ({ id: o.id, restaurant_id: o.restaurant_id, restaurant_name: o.restaurant_name })))
-    }
-    
-    return (data || []) as FoodOrder[]
-  } catch (error) {
-    console.error('❌ Error fetching all orders:', error)
-    return []
-  }
-}
-
-export const getOrdersForRestaurantName = async (restaurantName: string): Promise<FoodOrder[]> => {
-  try {
-    console.log('🔍 Fetching orders by restaurant name:', restaurantName)
-    const { data, error } = await supabase
-      .from('food_orders')
-      .select('*')
-      .ilike('restaurant_name', `%${restaurantName}%`)
-      .limit(50)
-
-    if (error) throw error
-    
-    console.log('✅ Orders found by name:', data?.length || 0)
-    return (data || []) as FoodOrder[]
-  } catch (error) {
-    console.error('❌ Error fetching orders by name:', error)
-    return []
-  }
-}
-
-// ============================================
-// MENU ITEMS QUERIES (UPDATED FOR NEW SCHEMA)
-// ============================================
-
-export const fetchMenuItems = async (restaurantId: string) => {
+export const fetchMenuItems = async (storeId: string) => {
   try {
     // First get the store's internal ID (bigint) from the store_id (text)
     const { data: storeData, error: storeError } = await supabase
       .from('merchant_store')
       .select('id')
-      .eq('store_id', restaurantId)
+      .eq('store_id', storeId)
       .single();
 
     if (storeError || !storeData) {
-      console.error('Store not found for ID:', restaurantId);
+      console.error('Store not found for ID:', storeId);
       return [];
     }
 
@@ -766,13 +412,12 @@ export const fetchMenuItems = async (restaurantId: string) => {
       `)
       .eq('store_id', storeData.id)
       .eq('is_active', true)
-      .order('created_at', { ascending: false })
-      .limit(500);
+      .order('created_at', { ascending: false });
 
     if (error) throw error;
     return data || [];
   } catch (error: any) {
-    console.error('Error fetching menu items:', error?.message || error);
+    console.error('Error fetching menu items:', error.message);
     return [];
   }
 }
@@ -869,35 +514,20 @@ export const createMenuItem = async (itemData: any) => {
       .eq('item_id', data.item_id)
       .single();
 
-
     if (fetchError) {
-      if (typeof fetchError === 'object' && Object.keys(fetchError).length > 0) {
-        console.error('Error fetching complete item:', fetchError);
-      } else {
-        console.error('Error fetching complete item: Unknown error or empty error object', fetchError);
-      }
+      console.error('Error fetching complete item:', fetchError);
       return data; // Return basic item if fetch fails
     }
 
     return completeItem;
-  } catch (error) {
-    // Improved error logging for debugging
-    if (typeof error === 'object') {
-      console.error('Error creating menu item:', JSON.stringify(error, null, 2));
-    } else {
-      console.error('Error creating menu item:', error);
-    }
+  } catch (error: any) {
+    console.error('Error creating menu item:', error.message);
     throw error;
   }
 }
 
 export const updateMenuItem = async (itemId: string, itemData: any) => {
-  console.log('=== updateMenuItem CALLED ===', { itemId, itemData });
-  // Log the payload for debugging
-  console.log('updateMenuItem payload:', JSON.stringify(itemData, null, 2));
-  // Update all editable fields
   try {
-    // Only include fields that exist in the schema
     const updatePayload = {
       item_name: itemData.item_name,
       description: itemData.description,
@@ -911,70 +541,63 @@ export const updateMenuItem = async (itemId: string, itemData: any) => {
       has_addons: itemData.has_addons,
       updated_at: new Date().toISOString(),
     };
+    
     const { data, error } = await supabase
       .from('menu_items')
       .update(updatePayload)
       .eq('item_id', itemId)
       .select()
       .single();
-    console.log('updateMenuItem full update result:', data, error);
+
     if (error) throw error;
     return data;
-  } catch (error) {
-    console.error('Error updating menu item:', error);
+  } catch (error: any) {
+    console.error('Error updating menu item:', error.message);
     throw error;
   }
 }
 
 export const updateMenuItemStock = async (itemId: string, inStock: boolean) => {
   try {
-    const trimmedId = itemId.trim();
-    console.log('[DEBUG] Updating stock for item_id:', trimmedId, 'inStock:', inStock);
-    const { data, error, status, statusText } = await supabase
+    const { data, error } = await supabase
       .from('menu_items')
       .update({ 
         in_stock: inStock,
         updated_at: new Date().toISOString()
       })
-      .eq('item_id', trimmedId)
+      .eq('item_id', itemId)
       .select();
 
-    console.log('[DEBUG] Supabase update response:', { data, error, status, statusText });
-
     if (error) {
-      console.error('[DEBUG] Supabase error:', error);
-      throw new Error(error.message || 'Failed to update stock');
+      console.error('Error updating stock:', error);
+      throw error;
     }
     
     if (!data || data.length === 0) {
-      console.error('[DEBUG] No item found for item_id:', trimmedId, 'Full response:', { data, error, status, statusText });
       throw new Error('Item not found');
     }
     
     return data[0];
   } catch (error: any) {
-    console.error('[DEBUG] Error updating stock status:', error?.message || error);
+    console.error('Error updating stock status:', error.message);
     throw error;
   }
 }
 
 export const deleteMenuItem = async (itemId: string) => {
   try {
-    console.log('🗑️ [DELETE] Starting hard delete for item:', itemId);
-
-    // Fetch the item to get image_url and store_id before deleting
+    // Fetch the item to get image_url before deleting
     const { data: item, error: fetchError } = await supabase
       .from('menu_items')
-      .select('image_url, store_id')
+      .select('image_url')
       .eq('item_id', itemId)
       .single();
 
     if (fetchError) {
-      console.error('❌ [DELETE] Could not fetch item for image deletion:', fetchError);
       throw new Error(fetchError.message || 'Failed to fetch item for deletion');
     }
 
-    // Delete image from R2 FIRST (while we still have the image_url)
+    // Delete image from R2 if exists
     if (item?.image_url) {
       try {
         const { deleteFromR2, extractR2KeyFromUrl } = await import('./r2');
@@ -982,53 +605,45 @@ export const deleteMenuItem = async (itemId: string) => {
         
         if (key) {
           await deleteFromR2(key);
-          console.log('🗑️ [DELETE] Image deleted from R2:', key);
-        } else {
-          console.warn('⚠️ [DELETE] Could not extract R2 key from URL:', item.image_url);
         }
       } catch (imgErr: any) {
-        // Log error but continue with database deletion to avoid orphaned records
-        console.error('❌ [DELETE] Failed to delete image from R2:', imgErr?.message || imgErr);
-        // Don't throw - we'll still delete the database record
+        // Don't throw if R2 deletion fails, just log
+        console.warn('Failed to delete image from R2:', imgErr.message);
       }
     }
 
-    // Hard delete - completely remove from database
+    // Delete from database
     const { error } = await supabase
       .from('menu_items')
       .delete()
       .eq('item_id', itemId);
 
-    console.log('🔄 [DELETE] Delete response:', { error });
-
     if (error) {
-      console.error('❌ [DELETE] Delete failed:', error);
       throw new Error(error.message || 'Failed to delete item');
     }
 
-    console.log('✅ [DELETE] Item and image removed');
     return true;
   } catch (error: any) {
-    console.error('❌ [DELETE] Error:', error?.message || error);
+    console.error('Error deleting menu item:', error.message);
     throw error;
   }
 }
 
 // ============================================
-// IMAGE UPLOAD TRACKING
+// IMAGE UPLOAD STATUS
 // ============================================
 
-export const getImageUploadCount = async (restaurantId: string): Promise<number> => {
+export const getImageUploadCount = async (storeId: string): Promise<number> => {
   try {
     // First get the store's internal ID
     const { data: storeData, error: storeError } = await supabase
       .from('merchant_store')
       .select('id')
-      .eq('store_id', restaurantId)
+      .eq('store_id', storeId)
       .single();
 
     if (storeError || !storeData) {
-      console.error('Store not found for ID:', restaurantId);
+      console.error('Store not found for ID:', storeId);
       return 0;
     }
 
@@ -1041,21 +656,18 @@ export const getImageUploadCount = async (restaurantId: string): Promise<number>
 
     if (error) throw error;
     return data?.length || 0;
-  } catch (error) {
-    console.error('Error getting image count:', error);
+  } catch (error: any) {
+    console.error('Error getting image count:', error.message);
     return 0;
   }
 }
 
-export const getImageUploadStatus = async (restaurantId: string) => {
+export const getImageUploadStatus = async (storeId: string) => {
   try {
-    const count = await getImageUploadCount(restaurantId);
+    const count = await getImageUploadCount(storeId);
     
-    // Tier 1: 10 free images
     const TIER_1_LIMIT = 10;
-    // Tier 2: 7 bonus free images (special offer)
     const TIER_2_LIMIT = 7;
-    // Total free images
     const TOTAL_FREE = TIER_1_LIMIT + TIER_2_LIMIT;
 
     const tier1Used = Math.min(count, TIER_1_LIMIT);
@@ -1082,12 +694,529 @@ export const getImageUploadStatus = async (restaurantId: string) => {
       pricePerImage: 2.5
     };
   } catch (error: any) {
-    console.error('Error getting image upload status:', error?.message || error);
+    console.error('Error getting image upload status:', error.message);
     return null;
   }
 }
 
-// Alias for compatibility - maintain old function names for existing code
-// ...existing code...
-// Alias for compatibility - maintain old function names for existing code
+// ============================================
+// FOOD ORDERS QUERIES (KEEP EXISTING)
+// ============================================
+
+export const fetchFoodOrdersByRestaurant = async (
+  restaurantId: string,
+  status?: string,
+  limit = 50
+): Promise<FoodOrder[]> => {
+  try {
+    let query = supabase
+      .from('food_orders')
+      .select('*')
+      .eq('restaurant_id', restaurantId)
+      .order('created_at', { ascending: false })
+      .limit(limit)
+
+    if (status) {
+      query = query.eq('status', status)
+    }
+
+    const { data, error } = await query
+
+    if (error) {
+      console.error('Error fetching orders:', error.message);
+      throw error
+    }
+    
+    return (data || []) as FoodOrder[]
+  } catch (error: any) {
+    console.error('Error fetching food orders:', error.message);
+    return []
+  }
+}
+
+export const fetchFoodOrdersByRestaurantName = async (
+  restaurantName: string,
+  status?: string,
+  limit = 50
+): Promise<FoodOrder[]> => {
+  try {
+    let query = supabase
+      .from('food_orders')
+      .select('*')
+      .ilike('restaurant_name', `%${restaurantName}%`)
+      .order('created_at', { ascending: false })
+      .limit(limit)
+
+    if (status) {
+      query = query.eq('status', status)
+    }
+
+    const { data, error } = await query
+
+    if (error) {
+      console.error('Error fetching orders by name:', error.message);
+      throw error
+    }
+    
+    return (data || []) as FoodOrder[]
+  } catch (error: any) {
+    console.error('Error fetching food orders by name:', error.message);
+    return []
+  }
+}
+
+export const fetchOrderById = async (orderId: string): Promise<FoodOrder | null> => {
+  try {
+    const { data, error } = await supabase
+      .from('food_orders')
+      .select('*')
+      .eq('id', orderId)
+      .single()
+
+    if (error) throw error
+    return data as FoodOrder
+  } catch (error: any) {
+    console.error('Error fetching order:', error.message);
+    return null
+  }
+}
+
+export const fetchOrdersByStatus = async (
+  restaurantId: string,
+  status: string
+): Promise<FoodOrder[]> => {
+  try {
+    const { data, error } = await supabase
+      .from('food_orders')
+      .select('*')
+      .eq('restaurant_id', restaurantId)
+      .eq('status', status)
+      .order('created_at', { ascending: false })
+
+    if (error) throw error
+    return data as FoodOrder[]
+  } catch (error: any) {
+    console.error('Error fetching orders by status:', error.message);
+    return []
+  }
+}
+
+export const searchOrders = async (
+  restaurantId: string,
+  query: string
+): Promise<FoodOrder[]> => {
+  try {
+    const { data, error } = await supabase
+      .from('food_orders')
+      .select('*')
+      .eq('restaurant_id', restaurantId)
+      .or(`order_number.ilike.%${query}%,user_name.ilike.%${query}%,user_phone.ilike.%${query}%`)
+      .order('created_at', { ascending: false })
+
+    if (error) throw error
+    return data as FoodOrder[]
+  } catch (error: any) {
+    console.error('Error searching orders:', error.message);
+    return []
+  }
+}
+
+// ============================================
+// ORDER MUTATIONS
+// ============================================
+
+export const updateOrderStatus = async (
+  orderId: string,
+  status: string
+): Promise<boolean> => {
+  try {
+    const { error } = await supabase
+      .from('food_orders')
+      .update({
+        status,
+        updated_at: new Date().toISOString(),
+        ...(status === 'confirmed' && { confirmed_at: new Date().toISOString() }),
+        ...(status === 'delivered' && { delivered_at: new Date().toISOString() }),
+      })
+      .eq('id', orderId)
+
+    if (error) throw error
+    return true
+  } catch (error: any) {
+    console.error('Error updating order status:', error.message);
+    return false
+  }
+}
+
+export const createFoodOrder = async (order: Partial<FoodOrder>): Promise<FoodOrder | null> => {
+  try {
+    const { data, error } = await supabase
+      .from('food_orders')
+      .insert([order])
+      .select()
+      .single()
+
+    if (error) throw error
+    return data as FoodOrder
+  } catch (error: any) {
+    console.error('Error creating order:', error.message);
+    return null
+  }
+}
+
+export const cancelOrder = async (orderId: string): Promise<boolean> => {
+  try {
+    const { error } = await supabase
+      .from('food_orders')
+      .update({
+        status: 'cancelled',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', orderId)
+
+    if (error) throw error
+    return true
+  } catch (error: any) {
+    console.error('Error cancelling order:', error.message);
+    return false
+  }
+}
+
+// ============================================
+// DASHBOARD STATISTICS
+// ============================================
+
+export const fetchOrderStats = async (restaurantId: string): Promise<OrderStats | null> => {
+  try {
+    const { data: orders, error } = await supabase
+      .from('food_orders')
+      .select('*')
+      .eq('restaurant_id', restaurantId)
+
+    if (error) throw error
+
+    const foodOrders = (orders || []) as FoodOrder[]
+
+    const stats: OrderStats = {
+      total_orders: foodOrders.length,
+      pending_orders: foodOrders.filter((o) => o.status === 'pending').length,
+      confirmed_orders: foodOrders.filter((o) => o.status === 'confirmed').length,
+      preparing_orders: foodOrders.filter((o) => o.status === 'preparing').length,
+      ready_orders: foodOrders.filter((o) => o.status === 'ready').length,
+      out_for_delivery_orders: foodOrders.filter((o) => o.status === 'out_for_delivery').length,
+      delivered_orders: foodOrders.filter((o) => o.status === 'delivered').length,
+      cancelled_orders: foodOrders.filter((o) => o.status === 'cancelled').length,
+      total_revenue: foodOrders
+        .filter((o) => o.status === 'delivered')
+        .reduce((sum, o) => sum + o.total_amount, 0),
+      average_order_value:
+        foodOrders.length > 0
+          ? foodOrders.reduce((sum, o) => sum + o.total_amount, 0) / foodOrders.length
+          : 0,
+      average_rating: foodOrders.filter((o) => o.rating).length > 0
+        ? foodOrders.filter((o) => o.rating).reduce((sum, o) => sum + (o.rating || 0), 0) /
+          foodOrders.filter((o) => o.rating).length
+        : 0,
+    }
+
+    return stats
+  } catch (error: any) {
+    console.error('Error fetching order stats:', error.message);
+    return null
+  }
+}
+
+export const fetchOrderStatsByRestaurantName = async (restaurantName: string): Promise<OrderStats | null> => {
+  try {
+    const { data: orders, error } = await supabase
+      .from('food_orders')
+      .select('*')
+      .ilike('restaurant_name', `%${restaurantName}%`)
+
+    if (error) throw error
+
+    const foodOrders = (orders || []) as FoodOrder[]
+
+    const stats: OrderStats = {
+      total_orders: foodOrders.length,
+      pending_orders: foodOrders.filter((o) => o.status === 'pending').length,
+      confirmed_orders: foodOrders.filter((o) => o.status === 'confirmed').length,
+      preparing_orders: foodOrders.filter((o) => o.status === 'preparing').length,
+      ready_orders: foodOrders.filter((o) => o.status === 'ready').length,
+      out_for_delivery_orders: foodOrders.filter((o) => o.status === 'out_for_delivery').length,
+      delivered_orders: foodOrders.filter((o) => o.status === 'delivered').length,
+      cancelled_orders: foodOrders.filter((o) => o.status === 'cancelled').length,
+      total_revenue: foodOrders
+        .filter((o) => o.status === 'delivered')
+        .reduce((sum, o) => sum + o.total_amount, 0),
+      average_order_value:
+        foodOrders.length > 0
+          ? foodOrders.reduce((sum, o) => sum + o.total_amount, 0) / foodOrders.length
+          : 0,
+      average_rating: foodOrders.filter((o) => o.rating).length > 0
+        ? foodOrders.filter((o) => o.rating).reduce((sum, o) => sum + (o.rating || 0), 0) /
+          foodOrders.filter((o) => o.rating).length
+        : 0,
+    }
+
+    return stats
+  } catch (error: any) {
+    console.error('Error fetching order stats by name:', error.message);
+    return null
+  }
+}
+
+// ============================================
+// REALTIME SUBSCRIPTIONS
+// ============================================
+
+export const subscribeToRestaurantOrders = (
+  restaurantId: string,
+  callback: (order: FoodOrder) => void
+) => {
+  return supabase
+    .channel(`orders:${restaurantId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'food_orders',
+        filter: `restaurant_id=eq.${restaurantId}`,
+      },
+      (payload: any) => {
+        callback(payload.new as FoodOrder)
+      }
+    )
+    .subscribe()
+}
+
+export const subscribeToRestaurantData = (
+  restaurantId: string,
+  callback: (restaurant: any) => void
+) => {
+  return supabase
+    .channel(`restaurant:${restaurantId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'merchant_store',
+        filter: `store_id=eq.${restaurantId}`,
+      },
+      (payload: any) => {
+        callback(payload.new)
+      }
+    )
+    .subscribe()
+}
+
+// ============================================
+// BATCH OPERATIONS
+// ============================================
+
+export const fetchOrdersInDateRange = async (
+  restaurantId: string,
+  startDate: Date,
+  endDate: Date
+): Promise<FoodOrder[]> => {
+  try {
+    const { data, error } = await supabase
+      .from('food_orders')
+      .select('*')
+      .eq('restaurant_id', restaurantId)
+      .gte('created_at', startDate.toISOString())
+      .lte('created_at', endDate.toISOString())
+      .order('created_at', { ascending: false })
+
+    if (error) throw error
+    return data as FoodOrder[]
+  } catch (error: any) {
+    console.error('Error fetching orders in date range:', error.message);
+    return []
+  }
+}
+
+export const fetchPendingOrders = async (restaurantId: string): Promise<FoodOrder[]> => {
+  try {
+    const { data, error } = await supabase
+      .from('food_orders')
+      .select('*')
+      .eq('restaurant_id', restaurantId)
+      .in('status', ['pending', 'confirmed', 'preparing'])
+      .order('created_at', { ascending: true })
+
+    if (error) throw error
+    return data as FoodOrder[]
+  } catch (error: any) {
+    console.error('Error fetching pending orders:', error.message);
+    return []
+  }
+}
+
+// ============================================
+// ALIASES FOR COMPATIBILITY
+// ============================================
+
+// Alias functions for compatibility
+export const fetchRestaurantById = fetchStoreById;
 export const fetchRestaurantByName = fetchStoreByName;
+
+// Legacy function for dashboard compatibility
+export const fetchManagedStores = async (fromDate?: string, toDate?: string) => {
+  let query = supabase
+    .from('merchant_store')
+    .select('*')
+    .in('approval_status', ['APPROVED', 'REJECTED'])
+    .order('created_at', { ascending: false });
+    
+  if (fromDate) query = query.gte('created_at', fromDate + 'T00:00:00');
+  if (toDate) query = query.lte('created_at', toDate + 'T23:59:59');
+  
+  const { data, error } = await query;
+  if (error) {
+    console.error('Error fetching managed stores:', error);
+    return [];
+  }
+  return data || [];
+};
+
+export const fetchStoreCounts = async (fromDate?: string, toDate?: string) => {
+  let query = supabase
+    .from('merchant_store')
+    .select('approval_status, created_at', { count: 'exact', head: false });
+    
+  if (fromDate) query = query.gte('created_at', fromDate + 'T00:00:00');
+  if (toDate) query = query.lte('created_at', toDate + 'T23:59:59');
+  
+  const { data, error } = await query;
+  if (error) {
+    console.error('Error fetching store counts:', error);
+    return { total: 0, pending: 0, verified: 0, rejected: 0 };
+  }
+  
+  let total = 0, pending = 0, verified = 0, rejected = 0;
+  (data || []).forEach((row: any) => {
+    total++;
+    if (row.approval_status === 'APPROVED') verified++;
+    else if (row.approval_status === 'REJECTED') rejected++;
+    else pending++;
+  });
+  
+  return { total, pending, verified, rejected };
+};
+
+// ============================================
+// DIAGNOSTIC FUNCTIONS
+// ============================================
+
+export const getAllOrdersInDatabase = async (): Promise<FoodOrder[]> => {
+  try {
+    const { data, error } = await supabase
+      .from('food_orders')
+      .select('*')
+      .limit(100)
+
+    if (error) throw error
+    return (data || []) as FoodOrder[]
+  } catch (error: any) {
+    console.error('Error fetching all orders:', error.message);
+    return []
+  }
+}
+
+export const getOrdersForRestaurantName = async (restaurantName: string): Promise<FoodOrder[]> => {
+  try {
+    const { data, error } = await supabase
+      .from('food_orders')
+      .select('*')
+      .ilike('restaurant_name', `%${restaurantName}%`)
+      .limit(50)
+
+    if (error) throw error
+    return (data || []) as FoodOrder[]
+  } catch (error: any) {
+    console.error('Error fetching orders by name:', error.message);
+    return []
+  }
+}
+
+// ============================================
+// TYPES (for reference - ensure these exist in ./types)
+// ============================================
+
+/*
+// Add these to your ./types.ts file if not already present:
+
+export interface FoodOrder {
+  id: string;
+  restaurant_id: string;
+  restaurant_name: string;
+  order_number: string;
+  user_name: string;
+  user_phone: string;
+  items: any[];
+  total_amount: number;
+  status: string;
+  payment_status: string;
+  payment_method: string;
+  delivery_address: string;
+  delivery_type: string;
+  rating?: number;
+  feedback?: string;
+  created_at: string;
+  updated_at: string;
+  confirmed_at?: string;
+  delivered_at?: string;
+}
+
+export interface OrderStats {
+  total_orders: number;
+  pending_orders: number;
+  confirmed_orders: number;
+  preparing_orders: number;
+  ready_orders: number;
+  out_for_delivery_orders: number;
+  delivered_orders: number;
+  cancelled_orders: number;
+  total_revenue: number;
+  average_order_value: number;
+  average_rating: number;
+}
+
+export interface MerchantStore {
+  id: string;
+  store_id: string;
+  store_name: string;
+  owner_name: string;
+  email: string;
+  phone: string;
+  city: string;
+  state: string;
+  address: string;
+  pincode: string;
+  gst_number?: string;
+  fssai_license?: string;
+  cuisine_type?: string;
+  store_type?: string;
+  opening_time?: string;
+  closing_time?: string;
+  is_vegetarian?: boolean;
+  delivery_radius?: number;
+  avg_rating?: number;
+  total_reviews?: number;
+  total_orders?: number;
+  is_verified?: boolean;
+  is_active?: boolean;
+  approval_status?: string;
+  approved_by?: string;
+  approved_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+*/
+
+
+
+

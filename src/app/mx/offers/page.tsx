@@ -1,241 +1,591 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, Suspense, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { MXLayoutWhite } from '@/components/MXLayoutWhite'
-import { fetchRestaurantById, fetchRestaurantByName, fetchActiveOffers, createOffer, updateOffer, deleteOffer, subscribeToOffers } from '@/lib/database'
-import type { Restaurant } from '@/lib/types'
-import { DEMO_RESTAURANT_ID } from '@/lib/constants'
-import { Plus, Edit2, Trash2, Zap, X, Calendar } from 'lucide-react'
+import { fetchStoreById, fetchStoreByName, fetchAllOffers, createOffer, updateOffer, deleteOffer, uploadOfferImage, fetchMenuItems } from '@/lib/database'
+import { Plus, Edit2, Trash2, Zap, X, Calendar, Percent, DollarSign, Tag, Gift, User, Clock, ShoppingBag, CheckCircle, ChevronDown, Copy, Search, Check, Sparkles } from 'lucide-react'
 import { Toaster, toast } from 'sonner'
 
 export const dynamic = 'force-dynamic'
 
-import type { Offer } from '@/lib/database'
+interface MerchantStore {
+  id: string;
+  store_name: string;
+}
+
+interface Offer {
+  offer_id: string;
+  store_id: number; // bigint
+  offer_title: string;
+  offer_description: string | null;
+  offer_type: 'BUY_N_GET_M' | 'PERCENTAGE' | 'FLAT' | 'COUPON' | 'FREE_ITEM';
+  offer_sub_type: 'ALL_ORDERS' | 'SPECIFIC_ITEM';
+  menu_item_ids: string[] | null;
+  discount_value: string | null; // numeric(10,2) comes as string
+  min_order_amount: string | null; // numeric(10,2) comes as string
+  buy_quantity: number | null;
+  get_quantity: number | null;
+  coupon_code: string | null;
+  image_url: string | null;
+  valid_from: string;
+  valid_till: string;
+  is_active: boolean | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface MenuItem {
+  item_id: string;
+  item_name: string;
+  category_type: string;
+  food_category_item: string;
+  actual_price: number;
+  in_stock: boolean;
+}
 
 function OffersContent() {
-    const [allMenuItems, setAllMenuItems] = useState<any[]>([]); // all menu items loaded once
-    const [menuItems, setMenuItems] = useState<any[]>([]); // filtered for autocomplete
-    const [itemSearch, setItemSearch] = useState('');
-    const [itemSearchLoading, setItemSearchLoading] = useState(false);
   const searchParams = useSearchParams()
-  const [restaurant, setRestaurant] = useState<Restaurant | null>(null)
+  const [store, setStore] = useState<MerchantStore | null>(null)
+  const [storeId, setStoreId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [restaurantId, setRestaurantId] = useState<string | null>(null)
-
   const [offers, setOffers] = useState<Offer[]>([])
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([])
+  
+  // Modal states
   const [showModal, setShowModal] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
-
-  // Helper to get current date in yyyy-mm-dd format
-  const getTodayDate = () => {
-    const now = new Date();
-    const yyyy = now.getFullYear();
-    const mm = String(now.getMonth() + 1).padStart(2, '0');
-    const dd = String(now.getDate()).padStart(2, '0');
-    return `${yyyy}-${mm}-${dd}`;
-  };
-
+  const [activeTab, setActiveTab] = useState<'basic' | 'details' | 'validity'>('basic')
+  
+  // Form state
   const [formData, setFormData] = useState({
-    offer_type: 'ALL_ORDERS' as 'ALL_ORDERS' | 'ITEM_LEVEL',
-    discount_type: 'PERCENTAGE' as 'PERCENTAGE' | 'FIXED_AMOUNT',
+    offer_title: '',
+    offer_description: '',
+    offer_type: 'PERCENTAGE' as Offer['offer_type'],
+    offer_sub_type: 'ALL_ORDERS' as Offer['offer_sub_type'],
+    menu_item_ids: [] as string[],
     discount_value: '',
-    item_name: '',
     min_order_amount: '',
-    valid_from: getTodayDate(),
+    buy_quantity: '',
+    get_quantity: '',
+    valid_from: '',
     valid_till: ''
   })
-  const [showPreview, setShowPreview] = useState(false);
-  const [bannerImage, setBannerImage] = useState<string | null>(null);
-
+  
+  // Image state
+  const [imageFile, setImageFile] = useState<File | null>(null)
+  const [imagePreview, setImagePreview] = useState<string | null>(null)
+  
+  // Dropdown states
+  const [showOfferTypeDropdown, setShowOfferTypeDropdown] = useState(false)
+  const [showApplyToDropdown, setShowApplyToDropdown] = useState(false)
+  
+  // Menu items search state
+  const [menuItemSearch, setMenuItemSearch] = useState('')
+  const [showMenuItemSuggestions, setShowMenuItemSuggestions] = useState(false)
+  const [filteredMenuItems, setFilteredMenuItems] = useState<MenuItem[]>([])
+  
+  // Coupon code state
+  const [generatedCouponCode, setGeneratedCouponCode] = useState<string>('')
+  const [isGeneratingCoupon, setIsGeneratingCoupon] = useState(false)
+  
+  // Refs for handling clicks outside
+  const menuItemSuggestionsRef = useRef<HTMLDivElement>(null)
+  const modalRef = useRef<HTMLDivElement>(null)
+  const modalContentRef = useRef<HTMLDivElement>(null)
+  const offerTypeRef = useRef<HTMLDivElement>(null)
+  const applyToRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    const getRestaurantId = async () => {
-      let id = searchParams.get('restaurantId')
-      if (!id) id = typeof window !== 'undefined' ? localStorage.getItem('selectedRestaurantId') : null
-      if (!id) id = DEMO_RESTAURANT_ID
-      setRestaurantId(id)
+    const getStoreId = async () => {
+      let id = searchParams.get('storeId')
+      if (!id) id = typeof window !== 'undefined' ? localStorage.getItem('selectedStoreId') : null
+      setStoreId(id)
     }
-    getRestaurantId()
+    getStoreId()
   }, [searchParams])
 
-  // Fetch offers and subscribe to changes
   useEffect(() => {
-    if (!restaurantId) return;
-    let unsub: any = null;
+    if (!storeId) {
+      setIsLoading(false)
+      return
+    }
+    
     const loadData = async () => {
-      setIsLoading(true);
+      setIsLoading(true)
       try {
-        let data = await fetchRestaurantById(restaurantId);
-        if (!data && !restaurantId.match(/^GMM\d{4}$/)) {
-          data = await fetchRestaurantByName(restaurantId);
+        // Load store
+        let storeData = await fetchStoreById(storeId)
+        if (!storeData) {
+          storeData = await fetchStoreByName(storeId)
         }
-        if (data) setRestaurant(data);
-        // Fetch active offers
-        const offers = await fetchActiveOffers(restaurantId);
-        setOffers(offers);
-        // Subscribe to real-time changes
-        unsub = subscribeToOffers(restaurantId, async () => {
-          const updated = await fetchActiveOffers(restaurantId);
-          setOffers(updated);
-        });
-        // Fetch all menu items once for item search
-        const { fetchMenuItems } = await import('@/lib/database');
-        const items = await fetchMenuItems(restaurantId);
-        setAllMenuItems(items || []);
-      } catch (error) {
-        console.error('Error loading offers/menu items:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    loadData();
-    return () => {
-      if (unsub && typeof unsub.unsubscribe === 'function') unsub.unsubscribe();
-    };
-  }, [restaurantId]);
+        setStore(storeData)
 
-  // Auto-deactivate expired offers (client-side fallback)
-  useEffect(() => {
-    if (!offers.length) return;
-    const now = new Date();
-    offers.forEach(async (offer) => {
-      if (offer.is_active && offer.valid_till && new Date(offer.valid_till) < now) {
-        await updateOffer(offer.id, { is_active: false });
+        // Load offers (all, not just active)
+        const offersData = await fetchAllOffers(storeId)
+        setOffers(offersData || [])
+        
+        // Load menu items for selection
+        const items = await fetchMenuItems(storeId)
+        setMenuItems(items || [])
+        setFilteredMenuItems(items || [])
+        
+      } catch (error) {
+        console.error('Error loading offers:', error)
+        toast.error('Failed to load offers')
+      } finally {
+        setIsLoading(false)
       }
-    });
-  }, [offers]);
+    }
+    
+    loadData()
+  }, [storeId])
+
+  // Filter menu items based on search
+  useEffect(() => {
+    if (menuItemSearch.trim() === '') {
+      setFilteredMenuItems(menuItems)
+    } else {
+      const filtered = menuItems.filter(item =>
+        item.item_name.toLowerCase().includes(menuItemSearch.toLowerCase())
+      )
+      setFilteredMenuItems(filtered)
+    }
+  }, [menuItemSearch, menuItems])
+
+  // Handle clicks outside dropdowns
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      // Close offer type dropdown
+      if (showOfferTypeDropdown && 
+          offerTypeRef.current && 
+          !offerTypeRef.current.contains(event.target as Node)) {
+        setShowOfferTypeDropdown(false)
+      }
+      
+      // Close apply to dropdown
+      if (showApplyToDropdown && 
+          applyToRef.current && 
+          !applyToRef.current.contains(event.target as Node)) {
+        setShowApplyToDropdown(false)
+      }
+      
+      // Close menu item suggestions
+      if (showMenuItemSuggestions && 
+          menuItemSuggestionsRef.current && 
+          !menuItemSuggestionsRef.current.contains(event.target as Node)) {
+        setShowMenuItemSuggestions(false)
+      }
+      
+      // Close modal when clicking outside
+      if (showModal && 
+          modalRef.current && 
+          !modalRef.current.contains(event.target as Node)) {
+        setShowModal(false)
+        resetForm()
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [showOfferTypeDropdown, showApplyToDropdown, showMenuItemSuggestions, showModal])
+
+  // Auto-generate coupon when COUPON type is selected
+  useEffect(() => {
+    if (formData.offer_type === 'COUPON' && !generatedCouponCode && !editingId) {
+      generateCoupon()
+    }
+  }, [formData.offer_type])
+
+  const generateCoupon = () => {
+    setIsGeneratingCoupon(true)
+    
+    // Generate a random coupon code
+    const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+    let coupon = ''
+    
+    // Format: STORE-XXXX-XXXX where X is alphanumeric
+    const storePrefix = store?.store_name ? store.store_name.substring(0, 3).toUpperCase() : 'OFF'
+    
+    for (let i = 0; i < 8; i++) {
+      coupon += characters.charAt(Math.floor(Math.random() * characters.length))
+    }
+    
+    // Insert hyphen after 4 characters
+    coupon = coupon.slice(0, 4) + '-' + coupon.slice(4)
+    
+    // Add store prefix
+    const finalCoupon = `${storePrefix}-${coupon}`
+    
+    setTimeout(() => {
+      setGeneratedCouponCode(finalCoupon)
+      setIsGeneratingCoupon(false)
+      toast.success('Coupon code generated!')
+    }, 500)
+  }
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      setImageFile(file)
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setImagePreview(reader.result as string)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
 
   const handleOpenModal = (offer?: Offer) => {
     if (offer) {
-      setEditingId(offer.id)
+      setEditingId(offer.offer_id)
       setFormData({
+        offer_title: offer.offer_title,
+        offer_description: offer.offer_description || '',
         offer_type: offer.offer_type,
-        discount_type: offer.discount_type,
-        discount_value: offer.discount_value.toString(),
-        item_name: offer.item_name || '',
+        offer_sub_type: offer.offer_sub_type,
+        menu_item_ids: offer.menu_item_ids || [],
+        discount_value: offer.discount_value?.toString() || '',
         min_order_amount: offer.min_order_amount?.toString() || '',
-        valid_from: offer.valid_from,
-        valid_till: offer.valid_till
+        buy_quantity: offer.buy_quantity?.toString() || '',
+        get_quantity: offer.get_quantity?.toString() || '',
+        valid_from: offer.valid_from.split('T')[0],
+        valid_till: offer.valid_till.split('T')[0]
       })
+      setImagePreview(offer.image_url)
+      if (offer.offer_type === 'COUPON') {
+        setGeneratedCouponCode(offer.coupon_code || '')
+      }
     } else {
       setEditingId(null)
       setFormData({
-        offer_type: 'ALL_ORDERS',
-        discount_type: 'PERCENTAGE',
+        offer_title: '',
+        offer_description: '',
+        offer_type: 'PERCENTAGE',
+        offer_sub_type: 'ALL_ORDERS',
+        menu_item_ids: [],
         discount_value: '',
-        item_name: '',
         min_order_amount: '',
+        buy_quantity: '',
+        get_quantity: '',
         valid_from: '',
         valid_till: ''
       })
+      setImagePreview(null)
+      setGeneratedCouponCode('')
     }
-    setBannerImage(null)
+    setImageFile(null)
+    setShowOfferTypeDropdown(false)
+    setShowApplyToDropdown(false)
+    setShowMenuItemSuggestions(false)
+    setMenuItemSearch('')
     setShowModal(true)
-    setItemSearch('');
-    setMenuItems([]);
+    setActiveTab('basic')
   }
-
-  // Fast in-memory autocomplete for menu items (in stock only)
-  useEffect(() => {
-    if (formData.offer_type === 'ITEM_LEVEL' && itemSearch.length > 1) {
-      setItemSearchLoading(true);
-      // Only show in-stock items, match by name
-      const filtered = allMenuItems.filter(
-        (item: any) => item.in_stock && item.item_name.toLowerCase().includes(itemSearch.toLowerCase())
-      );
-      setMenuItems(filtered);
-      setItemSearchLoading(false);
-    } else {
-      setMenuItems([]);
-    }
-  }, [itemSearch, formData.offer_type, allMenuItems]);
-
 
   const handleSaveOffer = async () => {
-      setIsSaving(true);
-    if (!formData.discount_value || !formData.valid_from || !formData.valid_till) {
-      toast.error('Please fill in all required fields')
+    if (!store || !store.id) {
+      toast.error('Store context not loaded. Please reload the page.')
       return
     }
-    // Prevent offer creation with valid_from before today
-    const today = new Date();
-    const validFrom = new Date(formData.valid_from);
-    today.setHours(0,0,0,0);
-    validFrom.setHours(0,0,0,0);
+
+    // Validation
+    if (!formData.offer_title.trim()) {
+      toast.error('Offer title is required')
+      return
+    }
+    
+    if (!formData.valid_from || !formData.valid_till) {
+      toast.error('Valid dates are required')
+      return
+    }
+
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const validFrom = new Date(formData.valid_from)
     if (validFrom < today) {
-      toast.error('Offer start date cannot be before today');
-      return;
+      toast.error('Offer start date cannot be before today')
+      return
     }
-    // Debug log for restaurantId
-    console.log('Offer Save: restaurantId', restaurantId);
-    const offerPayload: Partial<Offer> = {
-      restaurant_id: restaurantId!,
-      offer_type: formData.offer_type,
-      discount_type: formData.discount_type,
-      discount_value: Number(formData.discount_value),
-      item_name: formData.offer_type === 'ITEM_LEVEL' ? formData.item_name : undefined,
-      min_order_amount: formData.offer_type === 'ALL_ORDERS' ? Number(formData.min_order_amount) || undefined : undefined,
-      valid_from: formData.valid_from,
-      valid_till: formData.valid_till,
-      is_active: true,
-      // bannerImage removed, not in DB
-    };
-    // Debug log for offerPayload
-    // This should match menu item restaurant_id
-    console.log('Offer Payload:', offerPayload);
-    let result: Offer | null = null;
-    if (editingId) {
-      result = await updateOffer(editingId, offerPayload);
-    } else {
-      result = await createOffer(offerPayload);
+
+    if (new Date(formData.valid_till) < validFrom) {
+      toast.error('End date must be after start date')
+      return
     }
-    if (result) {
-      toast.success(editingId ? '✅ Offer updated!' : '✅ Offer created!');
-      setShowModal(false);
-      setEditingId(null);
-    } else {
-      toast.error('Failed to save offer');
+
+    // Specific items validation
+    if (formData.offer_sub_type === 'SPECIFIC_ITEM' && formData.menu_item_ids.length === 0) {
+      toast.error('Please select at least one menu item when applying to specific items')
+      return
     }
-    setIsSaving(false);
+
+    // Type-specific validation
+    let isValid = true
+    let errorMessage = ''
+
+    switch (formData.offer_type) {
+      case 'BUY_N_GET_M':
+        if (!formData.buy_quantity || !formData.get_quantity) {
+          isValid = false
+          errorMessage = 'Buy quantity and Get quantity are required'
+        }
+        break
+      case 'PERCENTAGE':
+        if (!formData.discount_value) {
+          isValid = false
+          errorMessage = 'Discount percentage is required'
+        }
+        if (parseFloat(formData.discount_value) < 0 || parseFloat(formData.discount_value) > 100) {
+          isValid = false
+          errorMessage = 'Discount percentage must be between 0 and 100'
+        }
+        break
+      case 'FLAT':
+      case 'COUPON':
+        if (!formData.discount_value) {
+          isValid = false
+          errorMessage = 'Discount amount is required'
+        }
+        if (parseFloat(formData.discount_value) <= 0) {
+          isValid = false
+          errorMessage = 'Discount amount must be greater than 0'
+        }
+        break
+      case 'FREE_ITEM':
+        if (!formData.min_order_amount) {
+          isValid = false
+          errorMessage = 'Minimum order amount is required for free item offers'
+        }
+        break
+    }
+
+    // Coupon validation
+    if (formData.offer_type === 'COUPON' && !generatedCouponCode) {
+      isValid = false
+      errorMessage = 'Please generate a coupon code'
+    }
+
+    if (!isValid) {
+      toast.error(errorMessage)
+      return
+    }
+
+    setIsSaving(true)
+
+    try {
+      // Prepare offer data
+      const offerPayload: any = {
+        store_id: store.id,
+        offer_title: formData.offer_title,
+        offer_description: formData.offer_description || null,
+        offer_type: formData.offer_type,
+        offer_sub_type: formData.offer_sub_type,
+        menu_item_ids: formData.offer_sub_type === 'SPECIFIC_ITEM' && formData.menu_item_ids.length > 0 
+          ? formData.menu_item_ids 
+          : null,
+        discount_value: formData.discount_value !== '' ? formData.discount_value : null,
+        min_order_amount: formData.min_order_amount !== '' ? formData.min_order_amount : null,
+        buy_quantity: formData.buy_quantity ? parseInt(formData.buy_quantity) : null,
+        get_quantity: formData.get_quantity ? parseInt(formData.get_quantity) : null,
+        coupon_code: formData.offer_type === 'COUPON' ? generatedCouponCode : null,
+        valid_from: new Date(formData.valid_from).toISOString(),
+        valid_till: new Date(formData.valid_till).toISOString(),
+        is_active: true
+      }
+
+      let result: Offer | null = null
+
+      // Handle image upload if new image selected
+      if (imageFile) {
+        const imageUrl = await uploadOfferImage(storeId, editingId || 'temp', imageFile)
+        if (imageUrl) {
+          offerPayload.image_url = imageUrl
+        }
+      }
+
+      if (editingId) {
+        // Update existing offer
+        result = await updateOffer(editingId, offerPayload)
+      } else {
+        // Create new offer
+        result = await createOffer(offerPayload)
+      }
+
+      if (result) {
+        // Update local state
+        if (editingId) {
+          setOffers(prev => prev.map(offer => 
+            offer.offer_id === editingId ? result! : offer
+          ))
+        } else {
+          setOffers(prev => [result!, ...prev])
+        }
+
+        toast.success(editingId ? 'Offer updated successfully!' : 'Offer created successfully!')
+        setShowModal(false)
+        resetForm()
+      } else {
+        toast.error('Failed to save offer')
+      }
+    } catch (error) {
+      console.error('Error saving offer:', error)
+      toast.error('Error saving offer')
+    } finally {
+      setIsSaving(false)
+    }
   }
 
-  const handleDeleteOffer = async (id: string) => {
-    if (confirm('Are you sure?')) {
-      const ok = await deleteOffer(id);
-      if (ok) toast.success('✅ Offer deleted!');
-      else toast.error('Failed to delete offer');
+  const handleDeleteOffer = async (offerId: string) => {
+    if (confirm('Are you sure you want to delete this offer?')) {
+      const success = await deleteOffer(offerId)
+      if (success) {
+        setOffers(prev => prev.filter(offer => offer.offer_id !== offerId))
+        toast.success('Offer deleted successfully!')
+      } else {
+        toast.error('Failed to delete offer')
+      }
     }
+  }
+
+  const resetForm = () => {
+    setFormData({
+      offer_title: '',
+      offer_description: '',
+      offer_type: 'PERCENTAGE',
+      offer_sub_type: 'ALL_ORDERS',
+      menu_item_ids: [],
+      discount_value: '',
+      min_order_amount: '',
+      buy_quantity: '',
+      get_quantity: '',
+      valid_from: '',
+      valid_till: ''
+    })
+    setImageFile(null)
+    setImagePreview(null)
+    setEditingId(null)
+    setActiveTab('basic')
+    setShowOfferTypeDropdown(false)
+    setShowApplyToDropdown(false)
+    setShowMenuItemSuggestions(false)
+    setMenuItemSearch('')
+    setGeneratedCouponCode('')
+  }
+
+  const toggleMenuItemSelection = (itemId: string) => {
+    setFormData(prev => {
+      const isSelected = prev.menu_item_ids.includes(itemId)
+      if (isSelected) {
+        return {
+          ...prev,
+          menu_item_ids: prev.menu_item_ids.filter(id => id !== itemId)
+        }
+      } else {
+        return {
+          ...prev,
+          menu_item_ids: [...prev.menu_item_ids, itemId]
+        }
+      }
+    })
+  }
+
+  const getMenuItemName = (itemId: string) => {
+    const item = menuItems.find(mi => mi.item_id === itemId)
+    return item ? item.item_name : 'Unknown Item'
+  }
+
+  const getOfferIcon = (offerType: Offer['offer_type']) => {
+    switch (offerType) {
+      case 'BUY_N_GET_M':
+        return <Gift size={18} className="text-purple-600" />
+      case 'PERCENTAGE':
+        return <Percent size={18} className="text-green-600" />
+      case 'FLAT':
+        return <DollarSign size={18} className="text-blue-600" />
+      case 'COUPON':
+        return <Tag size={18} className="text-red-600" />
+      case 'FREE_ITEM':
+        return <User size={18} className="text-orange-600" />
+      default:
+        return <Zap size={18} className="text-yellow-600" />
+    }
+  }
+
+  const getOfferDescription = (offer: Offer) => {
+    switch (offer.offer_type) {
+      case 'BUY_N_GET_M':
+        return `Buy ${offer.buy_quantity} Get ${offer.get_quantity}`
+      case 'PERCENTAGE':
+        return `${offer.discount_value}% OFF${offer.min_order_amount ? ` on orders above ₹${offer.min_order_amount}` : ''}`
+      case 'FLAT':
+        return `Flat ₹${offer.discount_value} OFF${offer.min_order_amount ? ` on orders above ₹${offer.min_order_amount}` : ''}`
+      case 'COUPON':
+        return `Coupon: ${offer.coupon_code} - ₹${offer.discount_value} OFF${offer.min_order_amount ? ` on min. order of ₹${offer.min_order_amount}` : ''}`
+      case 'FREE_ITEM':
+        return `Free Item for New Users${offer.min_order_amount ? ` on orders above ₹${offer.min_order_amount}` : ''}`
+      default:
+        return offer.offer_description || ''
+    }
+  }
+
+  const getOfferTypeDisplay = (type: Offer['offer_type']) => {
+    switch (type) {
+      case 'PERCENTAGE': return 'Percentage Discount'
+      case 'FLAT': return 'Flat Amount Discount'
+      case 'COUPON': return 'Coupon Discount'
+      case 'BUY_N_GET_M': return 'Buy N Get M'
+      case 'FREE_ITEM': return 'Free Item'
+      default: return 'Percentage Discount'
+    }
+  }
+
+  const getApplyToDisplay = (type: Offer['offer_sub_type']) => {
+    switch (type) {
+      case 'ALL_ORDERS': return 'All Orders'
+      case 'SPECIFIC_ITEM': return 'Specific Items'
+      default: return 'All Orders'
+    }
+  }
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text)
+    toast.success('Copied to clipboard!')
+  }
+
+  const handleOfferTypeChange = (type: Offer['offer_type']) => {
+    setFormData(prev => ({ ...prev, offer_type: type }))
+    setShowOfferTypeDropdown(false)
+    
+    // Reset coupon code if switching away from COUPON type
+    if (type !== 'COUPON') {
+      setGeneratedCouponCode('')
+    }
+  }
+
+  const handleApplyToChange = (type: Offer['offer_sub_type']) => {
+    setFormData(prev => ({ ...prev, offer_sub_type: type }))
+    setShowApplyToDropdown(false)
   }
 
   if (isLoading) {
     return (
-      <MXLayoutWhite restaurantName={restaurant?.restaurant_name} restaurantId={restaurantId || ''}>
-        <div className="min-h-screen bg-gray-50 p-6">
-          <div className="max-w-6xl mx-auto space-y-6">
-            {/* Header Skeleton */}
-            <div className="space-y-2">
-              <div className="h-8 bg-gray-200 rounded w-1/3 animate-pulse"></div>
-              <div className="h-4 bg-gray-100 rounded w-1/2 animate-pulse"></div>
-            </div>
-
-            {/* Add Button Skeleton */}
-            <div className="h-10 bg-orange-200 rounded-lg w-40 animate-pulse"></div>
-
-            {/* Cards Grid Skeleton */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {[1, 2, 3, 4, 5, 6].map((i) => (
-                <div key={i} className="bg-white rounded-lg border border-gray-200 p-6 space-y-4 animate-pulse">
-                  <div className="h-4 bg-gray-200 rounded w-2/3"></div>
-                  <div className="h-3 bg-gray-100 rounded w-full"></div>
-                  <div className="h-3 bg-gray-100 rounded w-full"></div>
-                  <div className="flex gap-2 pt-4">
-                    <div className="h-8 bg-gray-200 rounded flex-1"></div>
-                    <div className="h-8 bg-gray-200 rounded flex-1"></div>
+      <MXLayoutWhite restaurantName={store?.store_name || "Loading..."} restaurantId={storeId || ""}>
+        <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-4">
+          <div className="max-w-7xl mx-auto">
+            <div className="animate-pulse space-y-6">
+              <div className="h-10 bg-gray-200 rounded w-64"></div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {[1, 2, 3, 4, 5, 6].map(i => (
+                  <div key={i} className="bg-white rounded-xl p-6 space-y-4 shadow-sm">
+                    <div className="h-6 bg-gray-200 rounded w-3/4"></div>
+                    <div className="h-4 bg-gray-100 rounded w-full"></div>
+                    <div className="h-4 bg-gray-100 rounded w-2/3"></div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
         </div>
@@ -245,319 +595,905 @@ function OffersContent() {
 
   return (
     <>
-      <Toaster />
-      <MXLayoutWhite restaurantName={restaurant?.restaurant_name} restaurantId={restaurantId || DEMO_RESTAURANT_ID}>
-        <div className="min-h-screen bg-white px-4 sm:px-6 lg:px-8 py-8">
-          <div className="max-w-7xl mx-auto">
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h1 className="text-3xl font-bold text-gray-900">Offers</h1>
-                <p className="text-sm text-gray-600">Create and manage promotional offers</p>
-              </div>
-              <button
-                onClick={() => handleOpenModal()}
-                className="flex items-center gap-2 px-4 py-2.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors font-medium"
-                disabled={isSaving}
-              >
-                <Plus size={18} />
-                Create Offer
-              </button>
+      <Toaster position="top-right" richColors />
+      <MXLayoutWhite restaurantName={store?.store_name || "Offers"} restaurantId={storeId || ""}>
+        <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+          {/* Header */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between px-4 md:px-6 pt-6 pb-4 gap-4">
+            <div>
+              <h1 className="text-2xl md:text-3xl font-bold text-gray-900 bg-gradient-to-r from-orange-600 to-red-600 bg-clip-text text-transparent">
+                Offers & Promotions
+              </h1>
+              <p className="text-gray-600 mt-1 text-sm md:text-base flex items-center gap-2">
+                <ShoppingBag size={16} />
+                Manage offers for <span className="font-semibold text-orange-600">{store?.store_name || 'your store'}</span>
+              </p>
             </div>
+            <button
+              onClick={() => handleOpenModal()}
+              className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-orange-500 to-red-500 text-white font-bold rounded-lg hover:from-orange-600 hover:to-red-600 transition-all text-sm shadow-lg hover:shadow-xl"
+            >
+              <Plus size={18} />
+              Create Offer
+            </button>
+          </div>
 
+          {/* Offers Grid */}
+          <div className="px-4 md:px-6 py-6">
             {offers.length === 0 ? (
-              <div className="text-center py-16">
-                <Zap size={48} className="mx-auto text-gray-300 mb-4" />
-                <p className="text-gray-600 font-medium">No offers yet</p>
-                <p className="text-sm text-gray-500">Create your first offer to attract customers</p>
+              <div className="bg-white rounded-2xl border-2 border-dashed border-gray-300 p-8 md:p-12 text-center max-w-2xl mx-auto">
+                <div className="w-20 h-20 bg-gradient-to-br from-orange-100 to-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <Zap size={32} className="text-orange-500" />
+                </div>
+                <h3 className="text-xl font-bold text-gray-900 mb-3">No offers created yet</h3>
+                <p className="text-gray-600 mb-8 max-w-md mx-auto">Create your first offer to attract more customers and boost your sales</p>
+                <button
+                  onClick={() => handleOpenModal()}
+                  className="px-6 py-3 bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-xl hover:from-orange-600 hover:to-red-600 font-semibold shadow-lg hover:shadow-xl transition-all"
+                >
+                  Create First Offer
+                </button>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {offers.map(offer => (
-                  <div key={offer.id} className="relative group rounded-2xl overflow-hidden shadow-xl border-0 bg-gradient-to-br from-orange-100 via-white to-yellow-100 p-0">
-                    <div className="absolute inset-0 z-0 opacity-60 group-hover:opacity-80 transition-all duration-300" style={{background: 'linear-gradient(120deg, #ff9800 0%, #ff5722 100%)'}} />
-                    <div className="relative z-10 flex flex-col h-full justify-between p-6">
-                      <div className="flex items-center gap-3 mb-4">
-                        <Zap size={24} className="text-orange-500 drop-shadow-lg" />
-                        <span className="text-2xl font-extrabold text-gray-900 drop-shadow-lg">
-                          {offer.discount_value}{offer.discount_type === 'PERCENTAGE' ? '% OFF' : '₹ OFF'}
-                        </span>
-                      </div>
-                      <div className="mb-2">
-                        {(() => {
-                          const isExpired = new Date(offer.valid_till) < new Date();
-                          if (isExpired) {
-                            return (
-                              <span className="inline-block px-3 py-1 rounded-full bg-red-600 text-white text-xs font-semibold tracking-wider mb-2">
-                                OFFER ENDED
-                              </span>
-                            );
-                          }
-                          return (
-                            <span className={`inline-block px-3 py-1 rounded-full ${offer.is_active ? 'bg-green-600' : 'bg-gray-400'} text-white text-xs font-semibold tracking-wider mb-2`}>
-                              {offer.is_active ? 'ACTIVE' : 'INACTIVE'}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+                {offers.map(offer => {
+                  const isExpired = new Date(offer.valid_till) < new Date()
+                  const daysLeft = Math.ceil((new Date(offer.valid_till).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
+                  
+                  return (
+                    <div 
+                      key={offer.offer_id || Math.random()}
+                      className={`bg-white rounded-2xl overflow-hidden shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 ${
+                        isExpired ? 'opacity-75' : ''
+                      }`}
+                    >
+                      {/* Offer Header with Gradient */}
+                      <div className={`h-2 w-full ${
+                        isExpired ? 'bg-gradient-to-r from-gray-400 to-gray-500' :
+                        offer.is_active ? 'bg-gradient-to-r from-green-500 to-emerald-600' :
+                        'bg-gradient-to-r from-yellow-500 to-amber-600'
+                      }`}></div>
+                      
+                      <div className="p-5">
+                        {/* Offer ID */}
+                        <div className="text-xs text-gray-500 mb-2 font-mono">
+                          ID: {offer.offer_id}
+                        </div>
+
+                        {/* Offer Type & Status */}
+                        <div className="flex items-center justify-between mb-4">
+                          <div className="flex items-center gap-2">
+                            {getOfferIcon(offer.offer_type)}
+                            <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                              isExpired 
+                                ? 'bg-gray-100 text-gray-700' 
+                                : offer.is_active 
+                                  ? 'bg-green-100 text-green-800'
+                                  : 'bg-yellow-100 text-yellow-800'
+                            }`}>
+                              {isExpired ? 'EXPIRED' : offer.is_active ? 'ACTIVE' : 'INACTIVE'}
                             </span>
-                          );
-                        })()}
-                        <h3 className="text-xl font-bold text-white drop-shadow-lg mb-1">
-                          {offer.offer_type === 'ALL_ORDERS' ? 'All Orders' : offer.item_name}
+                          </div>
+                          <span className="text-xs font-semibold bg-gray-100 text-gray-700 px-2.5 py-1 rounded-full">
+                            {offer.offer_sub_type === 'SPECIFIC_ITEM' ? 'Specific Items' : 'All Orders'}
+                          </span>
+                        </div>
+                        
+                        {/* Offer Title */}
+                        <h3 className="font-bold text-xl text-gray-900 mb-3 line-clamp-1">
+                          {offer.offer_title}
                         </h3>
-                        {offer.min_order_amount && (
-                          <span className="block text-sm text-orange-100 font-medium bg-black/30 rounded px-2 py-1 w-fit mb-1">Min Order: ₹{offer.min_order_amount}</span>
+                        
+                        {/* Coupon Code Display */}
+                        {offer.offer_type === 'COUPON' && offer.coupon_code && (
+                          <div className="mb-3 p-3 bg-gradient-to-r from-red-50 to-red-100 border border-red-200 rounded-lg">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <div className="text-xs font-semibold text-red-700 mb-1">Coupon Code</div>
+                                <div className="text-lg font-bold text-red-800 font-mono">{offer.coupon_code}</div>
+                              </div>
+                              <button
+                                onClick={() => copyToClipboard(offer.coupon_code!)}
+                                className="p-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                              >
+                                <Copy size={16} />
+                              </button>
+                            </div>
+                          </div>
                         )}
-                      </div>
-                      <div className="flex flex-col gap-1 text-xs text-white">
-                        <span>Valid: {new Date(offer.valid_from).toLocaleDateString()} - {new Date(offer.valid_till).toLocaleDateString()}</span>
-                        <span>Used {offer.usage_count} times</span>
-                      </div>
-                      <div className="flex gap-2 mt-4">
-                        <button
-                          onClick={() => handleOpenModal(offer)}
-                          className="flex-1 py-2 rounded-lg bg-white/80 text-blue-700 font-bold shadow hover:bg-blue-100 transition"
-                        >
-                          <Edit2 size={16} className="inline mr-1" /> Edit
-                        </button>
-                        <button
-                          onClick={() => handleDeleteOffer(offer.id)}
-                          className="flex-1 py-2 rounded-lg bg-white/80 text-red-700 font-bold shadow hover:bg-red-100 transition"
-                        >
-                          <Trash2 size={16} className="inline mr-1" /> Delete
-                        </button>
+                        
+                        {/* Offer Description */}
+                        <div className="flex items-start gap-2 mb-4">
+                          <CheckCircle size={16} className="text-green-500 flex-shrink-0 mt-0.5" />
+                          <p className="text-gray-700 text-sm flex-1">
+                            {getOfferDescription(offer)}
+                          </p>
+                        </div>
+                        
+                        {/* Dates & Days Left */}
+                        <div className="flex items-center justify-between bg-gradient-to-r from-gray-50 to-gray-100 p-3 rounded-lg mb-5">
+                          <div className="flex items-center gap-2">
+                            <Calendar size={14} className="text-gray-500" />
+                            <span className="text-xs font-medium text-gray-700">
+                              {new Date(offer.valid_from).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} - {new Date(offer.valid_till).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                            </span>
+                          </div>
+                          {!isExpired && daysLeft > 0 && (
+                            <div className="flex items-center gap-1 bg-orange-100 text-orange-700 px-2 py-1 rounded-full">
+                              <Clock size={12} />
+                              <span className="text-xs font-bold">{daysLeft} day{daysLeft !== 1 ? 's' : ''} left</span>
+                            </div>
+                          )}
+                        </div>
+                        
+                        {/* Image Preview */}
+                        {offer.image_url && (
+                          <div className="mb-5 rounded-lg overflow-hidden border border-gray-200">
+                            <img 
+                              src={offer.image_url} 
+                              alt={offer.offer_title}
+                              className="w-full h-32 object-cover hover:scale-105 transition-transform duration-300"
+                            />
+                          </div>
+                        )}
+                        
+                        {/* Actions */}
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleOpenModal(offer)}
+                            className="flex-1 py-2.5 px-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl font-semibold hover:from-blue-600 hover:to-blue-700 transition-all text-sm shadow-md hover:shadow-lg flex items-center justify-center gap-2"
+                          >
+                            <Edit2 size={14} /> Edit
+                          </button>
+                          <button
+                            onClick={() => handleDeleteOffer(offer.offer_id)}
+                            className="flex-1 py-2.5 px-3 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-xl font-semibold hover:from-red-600 hover:to-red-700 transition-all text-sm shadow-md hover:shadow-lg flex items-center justify-center gap-2"
+                          >
+                            <Trash2 size={14} /> Delete
+                          </button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>
         </div>
 
-        {/* Preview Modal */}
-        {showPreview && (
-          <div
-            className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
-            onClick={e => {
-              if (e.target === e.currentTarget) setShowPreview(false);
-            }}
-          >
-            <div className="bg-transparent max-w-2xl w-full flex flex-col items-center">
-              <div className="relative w-full flex flex-col items-center">
-                <div
-                  className="w-full max-w-2xl h-48 md:h-64 rounded-2xl shadow-2xl flex items-center justify-center overflow-hidden border-4 border-orange-500 bg-gradient-to-br from-orange-400 via-pink-400 to-yellow-300"
-                  style={{
-                    background: bannerImage ? `url(${bannerImage}) center/cover no-repeat` : undefined,
-                  }}
-                >
-                  <div className="absolute inset-0 bg-black/30" />
-                  <div className="relative z-10 flex flex-col items-center w-full">
-                    <span className="text-3xl md:text-5xl font-extrabold text-white drop-shadow-lg tracking-wide text-center px-6 py-2 rounded-lg bg-black/40 backdrop-blur-sm">
-                      {formData.offer_type === 'ALL_ORDERS' ? 'All Orders' : formData.item_name || 'Specific Item'}
-                      {formData.discount_value ? ` - ${formData.discount_value}${formData.discount_type === 'PERCENTAGE' ? '% Off' : '₹ Off'}` : ''}
-                    </span>
-                    {formData.min_order_amount && (
-                      <span className="mt-2 text-lg md:text-2xl font-semibold text-orange-200 bg-black/30 px-4 py-1 rounded-full shadow">
-                        Min Order: ₹{formData.min_order_amount}
-                      </span>
-                    )}
-                    <span className="mt-4 text-base md:text-lg text-white bg-black/30 px-3 py-1 rounded">
-                      {formData.valid_from && formData.valid_till ? `Valid: ${formData.valid_from} to ${formData.valid_till}` : ''}
-                    </span>
-                  </div>
-                </div>
-                <button
-                  className="absolute top-2 right-2 bg-white/80 hover:bg-white text-orange-600 rounded-full p-2 shadow-lg"
-                  onClick={() => setShowPreview(false)}
-                >
-                  <X size={24} />
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        {/* Create/Edit Modal - FIXED SCROLLING ISSUE */}
         {showModal && (
-          <div
-            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-            onClick={e => {
-              if (e.target === e.currentTarget) setShowModal(false);
-            }}
-          >
-            <div className="bg-white rounded-lg max-w-md w-full max-h-[90vh] overflow-auto hide-scrollbar">
-              {/* Banner Image Upload & Preview - Highlighted */}
-              <div className="flex flex-col items-center justify-center p-4 border-b-4 border-orange-500 bg-white relative">
-                <label className="block text-base font-bold text-orange-700 mb-2">Offer Banner Image</label>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={e => {
-                    const file = e.target.files?.[0];
-                    if (file) {
-                      const reader = new FileReader();
-                      reader.onload = ev => setBannerImage(ev.target?.result as string);
-                      reader.readAsDataURL(file);
-                    }
-                  }}
-                  className="mb-2 border-2 border-orange-500 rounded px-2 py-1 bg-orange-50 text-orange-700 font-semibold cursor-pointer"
-                />
-                {/* Live Preview */}
-                <div className="w-full flex flex-col items-center mb-2">
-                  <div
-                    className="w-full h-28 rounded-lg flex items-center justify-center text-white font-bold text-xl relative overflow-hidden border-2 border-orange-500"
-                    style={{
-                      background: bannerImage ? `url(${bannerImage}) center/cover no-repeat` : 'linear-gradient(90deg, #ff9800 0%, #ff5722 100%)',
-                    }}
-                  >
-                    <span className="bg-black/40 px-4 py-1 rounded">
-                      {formData.offer_type === 'ALL_ORDERS' ? 'All Orders' : formData.item_name || 'Specific Item'} -
-                      {formData.discount_value ? ` ${formData.discount_value}${formData.discount_type === 'PERCENTAGE' ? '%' : '₹'} Off` : ' Offer Preview'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-6 space-y-4">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-2 md:p-4 backdrop-blur-sm">
+            <div 
+              ref={modalRef}
+              className="bg-white rounded-2xl w-full max-w-md border border-gray-200 shadow-2xl flex flex-col max-h-[90vh]"
+            >
+              {/* Header - Fixed */}
+              <div className="flex-shrink-0 flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-gray-50 to-white">
                 <div>
-                  <label className="block text-sm font-medium text-gray-900 mb-2">Offer Type *</label>
-                  <div className="space-y-2">
-                    {['ALL_ORDERS', 'ITEM_LEVEL'].map(type => (
-                      <label key={type} className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50">
-                        <input
-                          type="radio"
-                          name="offer_type"
-                          checked={formData.offer_type === type}
-                          onChange={() => setFormData({ ...formData, offer_type: type as any })}
-                        />
-                        <span className="text-sm font-medium text-gray-900">{type === 'ALL_ORDERS' ? 'All Orders' : 'Specific Item'}</span>
-                      </label>
-                    ))}
-                  </div>
+                  <h2 className="text-lg font-bold text-gray-900">{editingId ? 'Edit Offer' : 'Create New Offer'}</h2>
+                  <p className="text-xs text-gray-500 mt-0.5">Enter details for the offer</p>
                 </div>
+                <button
+                  onClick={() => {
+                    setShowModal(false)
+                    resetForm()
+                  }}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                  aria-label="Close"
+                >
+                  <X size={20} className="text-gray-600" />
+                </button>
+              </div>
 
-                {formData.offer_type === 'ITEM_LEVEL' && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-900 mb-1">Item Name *</label>
-                    <input
-                      type="text"
-                      value={itemSearch}
-                      onChange={e => setItemSearch(e.target.value)}
-                      className="w-full px-3 py-2 border-2 border-orange-500 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 text-gray-900"
-                      placeholder="Search menu item..."
-                    />
-                    {itemSearchLoading && <div className="text-xs text-gray-500 mt-1">Searching...</div>}
-                    {menuItems.length > 0 && (
-                      <ul className="bg-white border border-gray-200 rounded shadow mt-1 max-h-40 overflow-y-auto z-10">
-                        {menuItems.map(item => (
-                          <li
-                            key={item.id}
-                            className="px-3 py-2 hover:bg-orange-100 cursor-pointer text-gray-900"
-                            onClick={() => {
-                              setFormData({ ...formData, item_name: item.item_name });
-                              setItemSearch(item.item_name);
-                              setMenuItems([]);
-                            }}
-                          >
-                            {item.item_name}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                )}
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-900 mb-1">Discount Type *</label>
-                    <select
-                      value={formData.discount_type}
-                      onChange={(e) => setFormData({ ...formData, discount_type: e.target.value as any })}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 text-gray-900"
-                    >
-                      <option value="PERCENTAGE">Percentage %</option>
-                      <option value="FIXED_AMOUNT">Fixed ₹</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-900 mb-1">Value *</label>
-                    <input
-                      type="number"
-                      value={formData.discount_value}
-                      onChange={(e) => setFormData({ ...formData, discount_value: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 text-gray-900"
-                      placeholder="0"
-                    />
-                  </div>
-                </div>
-
-                {formData.offer_type === 'ALL_ORDERS' && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-900 mb-1">Min Order Amount (Optional)</label>
-                    <input
-                      type="number"
-                      value={formData.min_order_amount}
-                      onChange={(e) => setFormData({ ...formData, min_order_amount: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 text-gray-900"
-                      placeholder="0"
-                    />
-                  </div>
-                )}
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-900 mb-1">Valid From *</label>
-                    <input
-                      type="date"
-                      value={formData.valid_from}
-                      onChange={(e) => setFormData({ ...formData, valid_from: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 text-gray-900"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-900 mb-1">Valid Till *</label>
-                    <input
-                      type="date"
-                      value={formData.valid_till}
-                      onChange={(e) => setFormData({ ...formData, valid_till: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 text-gray-900"
-                    />
-                  </div>
+              {/* Compact Tabs - Fixed */}
+              <div className="flex-shrink-0 border-b border-gray-200 bg-white">
+                <div className="flex">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('basic')}
+                    className={`flex-1 px-3 py-3 text-xs font-semibold border-b-2 transition-colors ${activeTab === 'basic' ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                  >
+                    Basic Info
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('details')}
+                    className={`flex-1 px-3 py-3 text-xs font-semibold border-b-2 transition-colors ${activeTab === 'details' ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                  >
+                    Offer Details
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('validity')}
+                    className={`flex-1 px-3 py-3 text-xs font-semibold border-b-2 transition-colors ${activeTab === 'validity' ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                  >
+                    Validity
+                  </button>
                 </div>
               </div>
 
-              <div className="flex gap-3 p-6 border-t border-gray-200">
-                <button
-                  onClick={() => setShowModal(false)}
-                  className="flex-1 px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 font-medium"
-                  type="button"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleSaveOffer}
-                  className={`flex-1 px-4 py-2 rounded-lg font-medium text-white ${
-                    formData.discount_value && formData.valid_from && formData.valid_till && (formData.offer_type !== 'ITEM_LEVEL' || formData.item_name)
-                      ? 'bg-orange-600 hover:bg-orange-700 cursor-pointer'
-                      : 'bg-gray-300 cursor-not-allowed pointer-events-none'
-                  }`}
-                  type="button"
-                  disabled={
-                    !formData.discount_value || !formData.valid_from || !formData.valid_till || (formData.offer_type === 'ITEM_LEVEL' && !formData.item_name)
-                  }
-                >
-                  Save
-                </button>
+              {/* Form Content - Scrollable */}
+              <div 
+                ref={modalContentRef}
+                className="flex-1 overflow-y-auto hide-scrollbar"
+              >
+                <form className="px-5 py-4" autoComplete="off" onSubmit={e => { e.preventDefault(); handleSaveOffer(); }}>
+                  {activeTab === 'basic' && (
+                    <div className="space-y-4">
+                      <div className="bg-gradient-to-r from-blue-50 to-blue-100 border border-blue-200 rounded-lg p-3 mb-2">
+                        <h3 className="text-sm font-bold text-blue-800 mb-1">Basic Information</h3>
+                        <p className="text-xs text-blue-600">Fill in the basic details of your offer</p>
+                      </div>
+                      
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                          Offer Title *
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.offer_title}
+                          onChange={e => setFormData({...formData, offer_title: e.target.value})}
+                          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:border-orange-500 focus:ring-2 focus:ring-orange-100 text-sm transition-all"
+                          placeholder="e.g., Summer Special, Weekend Discount"
+                          required
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                          Description (Optional)
+                        </label>
+                        <textarea
+                          value={formData.offer_description}
+                          onChange={e => setFormData({...formData, offer_description: e.target.value})}
+                          className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:border-orange-500 focus:ring-2 focus:ring-orange-100 text-sm transition-all"
+                          placeholder="Describe your offer..."
+                          rows={2}
+                        />
+                      </div>
+                      
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                          Offer Image (Optional)
+                        </label>
+                        <div className="flex items-center gap-3">
+                          <label className="cursor-pointer">
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={handleImageChange}
+                              className="hidden"
+                            />
+                            <div className="px-4 py-2 bg-gradient-to-r from-orange-500 to-red-500 text-white text-xs font-bold rounded-lg hover:from-orange-600 hover:to-red-600 transition-all shadow-md">
+                              Choose Image
+                            </div>
+                          </label>
+                          {imagePreview && (
+                            <div className="relative w-14 h-14 rounded-lg overflow-hidden border-2 border-gray-200">
+                              <img 
+                                src={imagePreview} 
+                                alt="Preview" 
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-400 mt-1.5">
+                          Recommended: 800x400px
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {activeTab === 'details' && (
+                    <div className="space-y-4">
+                      <div className="bg-gradient-to-r from-blue-50 to-blue-100 border border-blue-200 rounded-lg p-3 mb-2">
+                        <h3 className="text-sm font-bold text-blue-800 mb-1">Offer Configuration</h3>
+                        <p className="text-xs text-blue-600">Configure the type and rules of your offer</p>
+                      </div>
+                      
+                      {/* Offer Type Dropdown */}
+                      <div className="space-y-3">
+                        <div>
+                          <label className="block text-xs font-bold text-gray-700 mb-1.5">
+                            Offer Type *
+                          </label>
+                          <div className="relative" ref={offerTypeRef}>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setShowOfferTypeDropdown(!showOfferTypeDropdown)
+                                setShowApplyToDropdown(false)
+                                setShowMenuItemSuggestions(false)
+                              }}
+                              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-left flex items-center justify-between bg-white hover:bg-gray-50 transition-colors"
+                            >
+                              <div className="flex items-center gap-2">
+                                <div className="p-1.5 rounded-full bg-gray-100">
+                                  {getOfferIcon(formData.offer_type)}
+                                </div>
+                                <span className="text-sm font-medium text-gray-900">{getOfferTypeDisplay(formData.offer_type)}</span>
+                              </div>
+                              <ChevronDown size={16} className={`text-gray-500 transition-transform ${showOfferTypeDropdown ? 'rotate-180' : ''}`} />
+                            </button>
+                            
+                            {showOfferTypeDropdown && (
+                              <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-xl hide-scrollbar max-h-60 overflow-y-auto">
+                                {[
+                                  { type: 'PERCENTAGE' as const, label: 'Percentage Discount', icon: <Percent size={14} className="text-green-600" /> },
+                                  { type: 'FLAT' as const, label: 'Flat Amount Discount', icon: <DollarSign size={14} className="text-blue-600" /> },
+                                  { type: 'COUPON' as const, label: 'Coupon Discount', icon: <Tag size={14} className="text-red-600" /> },
+                                  { type: 'BUY_N_GET_M' as const, label: 'Buy N Get M', icon: <Gift size={14} className="text-purple-600" /> },
+                                  { type: 'FREE_ITEM' as const, label: 'Free Item', icon: <User size={14} className="text-orange-600" /> }
+                                ].map((option) => (
+                                  <div
+                                    key={option.type}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleOfferTypeChange(option.type)
+                                    }}
+                                    className={`flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 cursor-pointer border-b last:border-b-0 ${
+                                      formData.offer_type === option.type ? 'bg-orange-50' : ''
+                                    }`}
+                                  >
+                                    <div className="p-1.5 rounded-full bg-gray-100">
+                                      {option.icon}
+                                    </div>
+                                    <div>
+                                      <div className="text-sm font-medium text-gray-900">{option.label}</div>
+                                    </div>
+                                    {formData.offer_type === option.type && (
+                                      <div className="ml-auto w-2 h-2 bg-green-500 rounded-full"></div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        
+                        {/* Apply To Dropdown */}
+                        <div>
+                          <label className="block text-xs font-bold text-gray-700 mb-1.5">
+                            Apply To *
+                          </label>
+                          <div className="relative" ref={applyToRef}>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setShowApplyToDropdown(!showApplyToDropdown)
+                                setShowOfferTypeDropdown(false)
+                                setShowMenuItemSuggestions(false)
+                              }}
+                              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-left flex items-center justify-between bg-white hover:bg-gray-50 transition-colors"
+                            >
+                              <span className="text-sm font-medium text-gray-900">{getApplyToDisplay(formData.offer_sub_type)}</span>
+                              <ChevronDown size={16} className={`text-gray-500 transition-transform ${showApplyToDropdown ? 'rotate-180' : ''}`} />
+                            </button>
+                            
+                            {showApplyToDropdown && (
+                              <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-xl">
+                                {[
+                                  { type: 'ALL_ORDERS' as const, label: 'All Orders' },
+                                  { type: 'SPECIFIC_ITEM' as const, label: 'Specific Items' }
+                                ].map((option) => (
+                                  <div
+                                    key={option.type}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleApplyToChange(option.type)
+                                    }}
+                                    className={`px-3 py-2.5 hover:bg-gray-50 cursor-pointer border-b last:border-b-0 ${
+                                      formData.offer_sub_type === option.type ? 'bg-orange-50' : ''
+                                    }`}
+                                  >
+                                    <div className="text-sm font-medium text-gray-900">{option.label}</div>
+                                    {formData.offer_sub_type === option.type && (
+                                      <div className="ml-auto w-2 h-2 bg-green-500 rounded-full"></div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Menu Items Selection (Only when Apply To is Specific Item) */}
+                      {formData.offer_sub_type === 'SPECIFIC_ITEM' && (
+                        <div className="space-y-2">
+                          <label className="block text-xs font-bold text-gray-700 mb-1.5">
+                            Select Menu Items *
+                          </label>
+                          
+                          {/* Selected Items Display */}
+                          {formData.menu_item_ids.length > 0 && (
+                            <div className="mb-2">
+                              <div className="text-xs font-semibold text-gray-600 mb-1">Selected Items ({formData.menu_item_ids.length}):</div>
+                              <div className="flex flex-wrap gap-1">
+                                {formData.menu_item_ids.map(itemId => (
+                                  <div
+                                    key={itemId}
+                                    className="flex items-center gap-1 bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs"
+                                  >
+                                    <span>{getMenuItemName(itemId)}</span>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        toggleMenuItemSelection(itemId)
+                                      }}
+                                      className="text-green-800 hover:text-green-900"
+                                    >
+                                      ×
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          
+                          {/* Search Input */}
+                          <div className="relative">
+                            <div className="relative">
+                              <Search size={14} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                              <input
+                                type="text"
+                                value={menuItemSearch}
+                                onChange={(e) => {
+                                  setMenuItemSearch(e.target.value)
+                                  setShowMenuItemSuggestions(true)
+                                }}
+                                onFocus={() => setShowMenuItemSuggestions(true)}
+                                className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg focus:border-orange-500 focus:ring-2 focus:ring-orange-100 text-sm"
+                                placeholder="Search menu items..."
+                              />
+                            </div>
+                            
+                            {/* Combined Suggestions Dropdown */}
+                            {showMenuItemSuggestions && (
+                              <div 
+                                ref={menuItemSuggestionsRef}
+                                className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-xl hide-scrollbar max-h-60 overflow-y-auto"
+                              >
+                                {filteredMenuItems.length === 0 ? (
+                                  <div className="px-3 py-4 text-center text-sm text-gray-500">
+                                    No menu items found
+                                  </div>
+                                ) : (
+                                  filteredMenuItems.map(item => {
+                                    const isSelected = formData.menu_item_ids.includes(item.item_id)
+                                    return (
+                                      <div
+                                        key={item.item_id}
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          toggleMenuItemSelection(item.item_id)
+                                          if (!menuItemSearch) {
+                                            // Only close if not searching
+                                            setShowMenuItemSuggestions(false)
+                                          }
+                                        }}
+                                        className={`px-3 py-2.5 hover:bg-gray-50 cursor-pointer border-b last:border-b-0 flex items-center justify-between ${
+                                          isSelected ? 'bg-green-50' : ''
+                                        }`}
+                                      >
+                                        <div className="flex-1 min-w-0">
+                                          <div className="flex items-center gap-2">
+                                            <div className="text-sm font-medium text-gray-900 truncate">
+                                              {item.item_name}
+                                            </div>
+                                            <span className={`text-xs px-1.5 py-0.5 rounded ${
+                                              item.category_type === 'NON_VEG' 
+                                                ? 'bg-red-100 text-red-800' 
+                                                : item.category_type === 'VEG'
+                                                ? 'bg-green-100 text-green-800'
+                                                : 'bg-gray-100 text-gray-800'
+                                            }`}>
+                                              {item.category_type}
+                                            </span>
+                                          </div>
+                                          <div className="text-xs text-gray-500 mt-0.5">
+                                            {item.food_category_item} • ₹{item.actual_price}
+                                          </div>
+                                        </div>
+                                        {isSelected && (
+                                          <Check size={16} className="text-green-600 flex-shrink-0 ml-2" />
+                                        )}
+                                      </div>
+                                    )
+                                  })
+                                )}
+                              </div>
+                            )}
+                          </div>
+                          
+                          {/* Instructions */}
+                          <p className="text-xs text-gray-500 mt-1">
+                            {menuItems.length > 0 
+                              ? `Found ${menuItems.length} menu items. Search or click to select.` 
+                              : 'No menu items available for this store.'}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Offer Rules */}
+                      <div className="space-y-3">
+                        <div className="border-t border-gray-200 pt-3">
+                          <h4 className="text-xs font-bold text-gray-700 mb-2">Offer Rules & Values</h4>
+                          
+                          {formData.offer_type === 'BUY_N_GET_M' && (
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                                  Buy Quantity *
+                                </label>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  value={formData.buy_quantity}
+                                  onChange={e => setFormData({...formData, buy_quantity: e.target.value})}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:border-orange-500 focus:ring-2 focus:ring-orange-100 text-sm"
+                                  required
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                                  Get Quantity *
+                                </label>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  value={formData.get_quantity}
+                                  onChange={e => setFormData({...formData, get_quantity: e.target.value})}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:border-orange-500 focus:ring-2 focus:ring-orange-100 text-sm"
+                                  required
+                                />
+                              </div>
+                            </div>
+                          )}
+                          
+                          {(formData.offer_type === 'PERCENTAGE' || formData.offer_type === 'FLAT' || formData.offer_type === 'COUPON') && (
+                            <>
+                              <div>
+                                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                                  Discount Value *
+                                </label>
+                                <div className="relative">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step={formData.offer_type === 'PERCENTAGE' ? "0.01" : "1"}
+                                    value={formData.discount_value}
+                                    onChange={e => setFormData({...formData, discount_value: e.target.value})}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:border-orange-500 focus:ring-2 focus:ring-orange-100 text-sm"
+                                    placeholder={formData.offer_type === 'PERCENTAGE' ? 'e.g., 10 for 10%' : 'e.g., 50 for ₹50'}
+                                    required
+                                  />
+                                  {formData.offer_type === 'PERCENTAGE' ? (
+                                    <div className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 font-bold">%</div>
+                                  ) : (
+                                    <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 font-bold">₹</div>
+                                  )}
+                                </div>
+                              </div>
+                              
+                              <div>
+                                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                                  Minimum Order Amount (Optional)
+                                </label>
+                                <div className="relative">
+                                  <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 font-bold">₹</span>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    value={formData.min_order_amount}
+                                    onChange={e => setFormData({...formData, min_order_amount: e.target.value})}
+                                    className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg focus:border-orange-500 focus:ring-2 focus:ring-orange-100 text-sm"
+                                    placeholder="e.g., 500"
+                                  />
+                                </div>
+                              </div>
+                            </>
+                          )}
+                          
+                          {formData.offer_type === 'FREE_ITEM' && (
+                            <div>
+                              <label className="block text-xs font-semibold text-gray-700 mb-1">
+                                Minimum Order Amount for New Users *
+                              </label>
+                              <div className="relative">
+                                <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 font-bold">₹</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={formData.min_order_amount}
+                                  onChange={e => setFormData({...formData, min_order_amount: e.target.value})}
+                                  className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg focus:border-orange-500 focus:ring-2 focus:ring-orange-100 text-sm"
+                                  placeholder="Order amount required for free item"
+                                  required
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Coupon Code Generator - Only for COUPON type */}
+                        {formData.offer_type === 'COUPON' && (
+                          <div className="mt-3 p-3 bg-gradient-to-r from-red-50 to-red-100 border border-red-200 rounded-lg">
+                            <label className="block text-xs font-bold text-red-800 mb-2">
+                              Coupon Code *
+                            </label>
+                            
+                            {generatedCouponCode ? (
+                              <div>
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="flex items-center gap-2">
+                                    <Tag size={14} className="text-red-600" />
+                                    <span className="text-sm font-semibold text-red-700">Generated Code:</span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => copyToClipboard(generatedCouponCode)}
+                                    className="text-xs font-medium text-red-700 hover:text-red-800"
+                                  >
+                                    <Copy size={12} className="inline mr-1" />
+                                    Copy
+                                  </button>
+                                </div>
+                                <div className="bg-white px-3 py-2 rounded border border-red-300">
+                                  <code className="text-lg font-bold text-red-800 font-mono tracking-wider">
+                                    {generatedCouponCode}
+                                  </code>
+                                </div>
+                                <div className="flex items-center gap-2 mt-2">
+                                  <div className="flex-1">
+                                    <p className="text-xs text-red-600">
+                                      ✓ Coupon code auto-generated
+                                    </p>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={generateCoupon}
+                                    disabled={isGeneratingCoupon}
+                                    className="text-xs font-medium text-red-700 hover:text-red-800"
+                                  >
+                                    {isGeneratingCoupon ? 'Regenerating...' : 'Regenerate'}
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="text-center">
+                                <button
+                                  type="button"
+                                  onClick={generateCoupon}
+                                  disabled={isGeneratingCoupon}
+                                  className={`w-full py-2 px-4 rounded-lg flex items-center justify-center gap-2 font-bold ${
+                                    isGeneratingCoupon
+                                      ? 'bg-gradient-to-r from-red-300 to-red-400 cursor-not-allowed'
+                                      : 'bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700'
+                                  } text-white transition-all shadow-md hover:shadow-lg`}
+                                >
+                                  {isGeneratingCoupon ? (
+                                    <>
+                                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                      Generating...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Sparkles size={14} />
+                                      Generate Coupon Code
+                                    </>
+                                  )}
+                                </button>
+                                <p className="text-xs text-red-600 mt-2">
+                                  Click to generate a unique coupon code for this offer
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {activeTab === 'validity' && (
+                    <div className="space-y-4">
+                      <div className="bg-gradient-to-r from-blue-50 to-blue-100 border border-blue-200 rounded-lg p-3 mb-2">
+                        <h3 className="text-sm font-bold text-blue-800 mb-1">Validity Period</h3>
+                        <p className="text-xs text-blue-600">Set when your offer will be active</p>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-bold text-gray-700 mb-1.5">
+                            Start Date *
+                          </label>
+                          <input
+                            type="date"
+                            value={formData.valid_from}
+                            onChange={e => setFormData({...formData, valid_from: e.target.value})}
+                            className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:border-orange-500 focus:ring-2 focus:ring-orange-100 text-sm"
+                            min={new Date().toISOString().split('T')[0]}
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-gray-700 mb-1.5">
+                            End Date *
+                          </label>
+                          <input
+                            type="date"
+                            value={formData.valid_till}
+                            onChange={e => setFormData({...formData, valid_till: e.target.value})}
+                            className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:border-orange-500 focus:ring-2 focus:ring-orange-100 text-sm"
+                            min={formData.valid_from || new Date().toISOString().split('T')[0]}
+                            required
+                          />
+                        </div>
+                      </div>
+                      
+                      {formData.valid_from && formData.valid_till && (
+                        <div className="p-3 bg-gradient-to-r from-gray-50 to-gray-100 rounded-lg border border-gray-200">
+                          <div className="text-xs font-bold text-gray-700 flex items-center gap-2">
+                            <Calendar size={12} />
+                            Valid from <span className="text-orange-600">{formData.valid_from}</span> to <span className="text-orange-600">{formData.valid_till}</span>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* Offer Summary */}
+                      <div className="border border-gray-200 rounded-lg overflow-hidden bg-gradient-to-br from-white to-gray-50">
+                        <div className="px-4 py-3 bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
+                          <h4 className="text-sm font-bold text-gray-900">Offer Summary</h4>
+                        </div>
+                        <div className="p-4">
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-semibold text-gray-600">Title:</span>
+                              <span className="text-xs font-bold text-gray-900">{formData.offer_title || 'Not set'}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-semibold text-gray-600">Type:</span>
+                              <span className="text-xs font-bold text-gray-900">{getOfferTypeDisplay(formData.offer_type)}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-semibold text-gray-600">Apply To:</span>
+                              <span className="text-xs font-bold text-gray-900">{getApplyToDisplay(formData.offer_sub_type)}</span>
+                            </div>
+                            {formData.offer_sub_type === 'SPECIFIC_ITEM' && formData.menu_item_ids.length > 0 && (
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-semibold text-gray-600">Selected Items:</span>
+                                <span className="text-xs font-bold text-green-600 bg-green-50 px-2 py-1 rounded">
+                                  {formData.menu_item_ids.length} item(s)
+                                </span>
+                              </div>
+                            )}
+                            {formData.offer_type === 'COUPON' && generatedCouponCode && (
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-semibold text-gray-600">Coupon Code:</span>
+                                <span className="text-xs font-bold text-red-600 bg-red-50 px-2 py-1 rounded font-mono">
+                                  {generatedCouponCode}
+                                </span>
+                              </div>
+                            )}
+                            {formData.discount_value && (
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-semibold text-gray-600">Discount:</span>
+                                <span className="text-xs font-bold text-green-600 bg-green-50 px-2 py-1 rounded">
+                                  {formData.offer_type === 'PERCENTAGE' ? `${formData.discount_value}% OFF` : `₹${formData.discount_value} OFF`}
+                                </span>
+                              </div>
+                            )}
+                            {formData.min_order_amount && (
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-semibold text-gray-600">Min. Order:</span>
+                                <span className="text-xs font-bold text-orange-600 bg-orange-50 px-2 py-1 rounded">
+                                  ₹{formData.min_order_amount}+
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Navigation Buttons - Fixed at bottom of content */}
+                  <div className="flex items-center justify-between gap-2 pt-6 mt-6 border-t border-gray-200">
+                    <div>
+                      {activeTab !== 'basic' && (
+                        <button
+                          type="button"
+                          className="px-4 py-2.5 rounded-lg bg-gradient-to-r from-gray-100 to-gray-200 border border-gray-300 text-gray-700 hover:from-gray-200 hover:to-gray-300 transition-all text-xs font-bold flex items-center gap-1"
+                          onClick={() => {
+                            if (activeTab === 'details') setActiveTab('basic')
+                            if (activeTab === 'validity') setActiveTab('details')
+                          }}
+                        >
+                          ← Previous
+                        </button>
+                      )}
+                    </div>
+                    
+                    <div className="flex gap-2">
+                      {activeTab !== 'validity' && (
+                        <button
+                          type="button"
+                          className="px-4 py-2.5 rounded-lg bg-gradient-to-r from-gray-800 to-gray-900 text-white hover:from-gray-900 hover:to-black transition-all text-xs font-bold flex items-center gap-1"
+                          onClick={() => {
+                            if (activeTab === 'basic') setActiveTab('details')
+                            if (activeTab === 'details') setActiveTab('validity')
+                          }}
+                        >
+                          Next →
+                        </button>
+                      )}
+                      
+                      {activeTab === 'validity' && (
+                        <button
+                          type="submit"
+                          disabled={isSaving || !formData.offer_title.trim() || !formData.valid_from || !formData.valid_till || 
+                            (formData.offer_sub_type === 'SPECIFIC_ITEM' && formData.menu_item_ids.length === 0) ||
+                            (formData.offer_type === 'COUPON' && !generatedCouponCode)}
+                          className={`px-6 py-2.5 rounded-lg font-bold text-white transition-all text-xs ${
+                            isSaving || !formData.offer_title.trim() || !formData.valid_from || !formData.valid_till || 
+                            (formData.offer_sub_type === 'SPECIFIC_ITEM' && formData.menu_item_ids.length === 0) ||
+                            (formData.offer_type === 'COUPON' && !generatedCouponCode)
+                              ? 'bg-gradient-to-r from-orange-300 to-red-300 cursor-not-allowed' 
+                              : 'bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 shadow-lg hover:shadow-xl'
+                          }`}
+                        >
+                          {isSaving ? (
+                            <span className="flex items-center gap-1">
+                              <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white"></div>
+                              Saving...
+                            </span>
+                          ) : (
+                            editingId ? 'Update Offer' : 'Create Offer'
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </form>
               </div>
             </div>
           </div>
         )}
       </MXLayoutWhite>
+
+      {/* Add global CSS for hiding scrollbars */}
+      <style jsx global>{`
+        .hide-scrollbar {
+          -ms-overflow-style: none;  /* IE and Edge */
+          scrollbar-width: none;      /* Firefox */
+        }
+        
+        .hide-scrollbar::-webkit-scrollbar {
+          display: none;              /* Chrome, Safari and Opera */
+        }
+      `}</style>
     </>
   )
 }
 
-import { Suspense } from 'react';
-
 export default function OffersPage() {
   return (
-    <Suspense fallback={<div>Loading...</div>}>
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-14 w-14 border-b-2 border-orange-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600 font-medium">Loading offers...</p>
+        </div>
+      </div>
+    }>
       <OffersContent />
     </Suspense>
-  );
+  )
 }

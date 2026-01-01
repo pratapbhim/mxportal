@@ -20,6 +20,18 @@ function getR2Config() {
   const R2_REGION = process.env.R2_REGION?.trim();
   const R2_ENDPOINT = process.env.R2_ENDPOINT?.trim();
 
+  // Debug: Log R2 env variables (mask secrets)
+  if (typeof window === 'undefined') {
+    console.log('[R2][DEBUG] ENV', {
+      R2_ACCESS_KEY: R2_ACCESS_KEY ? R2_ACCESS_KEY.slice(0, 4) + '...' : undefined,
+      R2_SECRET_KEY: R2_SECRET_KEY ? R2_SECRET_KEY.slice(0, 4) + '...' : undefined,
+      R2_BUCKET_NAME,
+      R2_REGION,
+      R2_ENDPOINT,
+      R2_PUBLIC_BASE_URL: process.env.R2_PUBLIC_BASE_URL,
+    });
+  }
+
   // Only validate R2 credentials on the server, not in the browser
   const isServer = typeof window === 'undefined';
   if (isServer) {
@@ -144,11 +156,18 @@ export async function deleteFromR2(key: string): Promise<void> {
   }
   const s3 = getS3Client();
   const bucketName = getBucketName();
+  console.log('[R2][DEBUG] Deleting from R2', { key, bucketName });
   const command = new DeleteObjectCommand({
     Bucket: bucketName,
     Key: key,
   });
-  await s3.send(command);
+  try {
+    const result = await s3.send(command);
+    console.log('[R2][DEBUG] Delete result', result);
+  } catch (err) {
+    console.error('[R2][ERROR] Delete failed', err);
+    throw err;
+  }
 }
 
 export async function getR2SignedUrl(key: string, expiresInSeconds = 3600): Promise<string> {
