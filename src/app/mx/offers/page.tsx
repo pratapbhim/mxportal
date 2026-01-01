@@ -4,7 +4,7 @@ import React, { useState, useEffect, Suspense, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { MXLayoutWhite } from '@/components/MXLayoutWhite'
 import { fetchStoreById, fetchStoreByName, fetchAllOffers, createOffer, updateOffer, deleteOffer, uploadOfferImage, fetchMenuItems } from '@/lib/database'
-import { Plus, Edit2, Trash2, Zap, X, Calendar, Percent, DollarSign, Tag, Gift, User, Clock, ShoppingBag, CheckCircle, ChevronDown, Copy, Search, Check, Sparkles } from 'lucide-react'
+import { Plus, Edit2, Trash2, Zap, X, Calendar, Percent, DollarSign, Tag, Gift, User, Clock, ShoppingBag, CheckCircle, ChevronDown, Copy, Search, Check, Sparkles, ExternalLink, ChevronRight, Star, Shield, Award, Target, TrendingUp } from 'lucide-react'
 import { Toaster, toast } from 'sonner'
 
 export const dynamic = 'force-dynamic'
@@ -58,7 +58,7 @@ function OffersContent() {
   const [isSaving, setIsSaving] = useState(false)
   const [activeTab, setActiveTab] = useState<'basic' | 'details' | 'validity'>('basic')
   
-  // Form state
+  // Form state - FIX: Use controlled components with proper state management
   const [formData, setFormData] = useState({
     offer_title: '',
     offer_description: '',
@@ -72,6 +72,9 @@ function OffersContent() {
     valid_from: '',
     valid_till: ''
   })
+  
+  // Track if form is initialized from an existing offer
+  const [formInitialized, setFormInitialized] = useState(false)
   
   // Image state
   const [imageFile, setImageFile] = useState<File | null>(null)
@@ -96,6 +99,25 @@ function OffersContent() {
   const modalContentRef = useRef<HTMLDivElement>(null)
   const offerTypeRef = useRef<HTMLDivElement>(null)
   const applyToRef = useRef<HTMLDivElement>(null)
+
+  // FIX: Create controlled input handlers to prevent overwriting
+  const handleInputChange = (field: keyof typeof formData) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    setFormData(prev => ({
+      ...prev,
+      [field]: e.target.value
+    }))
+  }
+
+  const handleNumberInputChange = (field: keyof typeof formData) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value
+    // Allow empty string or valid numbers
+    if (value === '' || /^\d*\.?\d*$/.test(value)) {
+      setFormData(prev => ({
+        ...prev,
+        [field]: value
+      }))
+    }
+  }
 
   useEffect(() => {
     const getStoreId = async () => {
@@ -178,13 +200,7 @@ function OffersContent() {
         setShowMenuItemSuggestions(false)
       }
       
-      // Close modal when clicking outside
-      if (showModal && 
-          modalRef.current && 
-          !modalRef.current.contains(event.target as Node)) {
-        setShowModal(false)
-        resetForm()
-      }
+      // Do NOT close modal on outside click anymore
     }
 
     document.addEventListener('mousedown', handleClickOutside)
@@ -259,6 +275,7 @@ function OffersContent() {
       if (offer.offer_type === 'COUPON') {
         setGeneratedCouponCode(offer.coupon_code || '')
       }
+      setFormInitialized(true)
     } else {
       setEditingId(null)
       setFormData({
@@ -276,6 +293,7 @@ function OffersContent() {
       })
       setImagePreview(null)
       setGeneratedCouponCode('')
+      setFormInitialized(true)
     }
     setImageFile(null)
     setShowOfferTypeDropdown(false)
@@ -473,6 +491,7 @@ function OffersContent() {
     setShowMenuItemSuggestions(false)
     setMenuItemSearch('')
     setGeneratedCouponCode('')
+    setFormInitialized(false)
   }
 
   const toggleMenuItemSelection = (itemId: string) => {
@@ -500,17 +519,17 @@ function OffersContent() {
   const getOfferIcon = (offerType: Offer['offer_type']) => {
     switch (offerType) {
       case 'BUY_N_GET_M':
-        return <Gift size={18} className="text-purple-600" />
+        return <Gift size={16} className="text-purple-600" />
       case 'PERCENTAGE':
-        return <Percent size={18} className="text-green-600" />
+        return <Percent size={16} className="text-green-600" />
       case 'FLAT':
-        return <DollarSign size={18} className="text-blue-600" />
+        return <DollarSign size={16} className="text-blue-600" />
       case 'COUPON':
-        return <Tag size={18} className="text-red-600" />
+        return <Tag size={16} className="text-red-600" />
       case 'FREE_ITEM':
-        return <User size={18} className="text-orange-600" />
+        return <User size={16} className="text-orange-600" />
       default:
-        return <Zap size={18} className="text-yellow-600" />
+        return <Zap size={16} className="text-yellow-600" />
     }
   }
 
@@ -570,6 +589,30 @@ function OffersContent() {
     setShowApplyToDropdown(false)
   }
 
+  const getStatusColor = (offer: Offer) => {
+    const isExpired = new Date(offer.valid_till) < new Date();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const validFrom = new Date(offer.valid_from);
+    const isUpcoming = validFrom > today;
+    
+    if (isExpired) return { bg: 'bg-gray-100', text: 'text-gray-700', label: 'EXPIRED' };
+    if (!offer.is_active) return { bg: 'bg-yellow-50', text: 'text-amber-700', label: 'INACTIVE' };
+    if (isUpcoming) return { bg: 'bg-blue-50', text: 'text-blue-700', label: 'UPCOMING' };
+    return { bg: 'bg-green-50', text: 'text-green-700', label: 'ACTIVE' };
+  }
+
+  const getOfferBadgeColor = (offerType: Offer['offer_type']) => {
+    switch (offerType) {
+      case 'PERCENTAGE': return 'bg-gradient-to-r from-emerald-500 to-green-600';
+      case 'FLAT': return 'bg-gradient-to-r from-blue-500 to-cyan-600';
+      case 'COUPON': return 'bg-gradient-to-r from-rose-500 to-pink-600';
+      case 'BUY_N_GET_M': return 'bg-gradient-to-r from-purple-500 to-violet-600';
+      case 'FREE_ITEM': return 'bg-gradient-to-r from-amber-500 to-orange-600';
+      default: return 'bg-gradient-to-r from-gray-500 to-gray-600';
+    }
+  }
+
   if (isLoading) {
     return (
       <MXLayoutWhite restaurantName={store?.store_name || "Loading..."} restaurantId={storeId || ""}>
@@ -618,7 +661,7 @@ function OffersContent() {
             </button>
           </div>
 
-          {/* Offers Grid */}
+          {/* Offers Grid - REDESIGNED CARDS */}
           <div className="px-4 md:px-6 py-6">
             {offers.length === 0 ? (
               <div className="bg-white rounded-2xl border-2 border-dashed border-gray-300 p-8 md:p-12 text-center max-w-2xl mx-auto">
@@ -635,138 +678,204 @@ function OffersContent() {
                 </button>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                 {offers.map(offer => {
-                  const isExpired = new Date(offer.valid_till) < new Date()
-                  const daysLeft = Math.ceil((new Date(offer.valid_till).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
+                  const isExpired = new Date(offer.valid_till) < new Date();
+                  const daysLeft = Math.ceil((new Date(offer.valid_till).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+                  const status = getStatusColor(offer);
+                  const badgeColor = getOfferBadgeColor(offer.offer_type);
                   
                   return (
-                    <div 
+                    <div
                       key={offer.offer_id || Math.random()}
-                      className={`bg-white rounded-2xl overflow-hidden shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 ${
-                        isExpired ? 'opacity-75' : ''
-                      }`}
+                      className={`bg-white rounded-xl shadow-sm border border-gray-200 hover:shadow-lg transition-all duration-300 hover:-translate-y-0.5 group relative overflow-hidden ${isExpired ? 'opacity-80' : ''}`}
+                      style={{ minHeight: 'auto', maxWidth: 340, cursor: 'pointer', paddingTop: 0, paddingBottom: 0 }}
                     >
-                      {/* Offer Header with Gradient */}
-                      <div className={`h-2 w-full ${
-                        isExpired ? 'bg-gradient-to-r from-gray-400 to-gray-500' :
-                        offer.is_active ? 'bg-gradient-to-r from-green-500 to-emerald-600' :
-                        'bg-gradient-to-r from-yellow-500 to-amber-600'
-                      }`}></div>
-                      
-                      <div className="p-5">
-                        {/* Offer ID */}
-                        <div className="text-xs text-gray-500 mb-2 font-mono">
-                          ID: {offer.offer_id}
+                      {/* Top accent bar */}
+                      <div className={`absolute top-0 left-0 right-0 h-1 ${badgeColor}`}></div>
+                      {/* Content */}
+                      <div className="p-1.5 md:p-2">
+                        {/* Header row */}
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1 mb-0.5">
+                              {getOfferIcon(offer.offer_type)}
+                              <span className={`px-2 py-1 rounded-full text-[10px] font-bold ${status.bg} ${status.text}`}>
+                                {status.label}
+                              </span>
+                            </div>
+                            <h3 className="font-bold text-gray-900 text-xs truncate group-hover:text-orange-600 transition-colors">
+                              {offer.offer_title}
+                            </h3>
+                            <p className="text-[9px] text-gray-500 font-mono mt-0.5">
+                              ID: {offer.offer_id.substring(0, 8)}...
+                            </p>
+                          </div>
+                          
+                          {/* Scope badge */}
+                          <div className="flex-shrink-0">
+                            {offer.offer_sub_type === 'SPECIFIC_ITEM' ? (
+                              <span
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-indigo-50 text-indigo-700 relative hover:bg-indigo-100"
+                                style={{ cursor: 'pointer', position: 'relative' }}
+                                tabIndex={0}
+                              >
+                                Specific Items
+                                <span className="absolute left-1/2 z-50 -translate-x-1/2 mt-2 min-w-max bg-white border border-gray-300 rounded-lg shadow-lg text-xs text-gray-900 px-3 py-2 whitespace-pre-line opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity duration-200"
+                                  style={{
+                                    top: '100%',
+                                    whiteSpace: 'pre-line',
+                                    minWidth: '180px',
+                                    maxWidth: '260px',
+                                    fontSize: '11px',
+                                    left: '50%',
+                                    transform: 'translateX(-50%)',
+                                  }}
+                                >
+                                  {offer.menu_item_ids && offer.menu_item_ids.length > 0
+                                    ? offer.menu_item_ids.map(
+                                        id => {
+                                          const item = menuItems.find(m => m.item_id === id);
+                                          return item ? `• ${item.item_name}` : null;
+                                        }
+                                      ).filter(Boolean).join('\n')
+                                    : 'No items found'}
+                                </span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-blue-50 text-blue-700">
+                                All Orders
+                              </span>
+                            )}
+                          </div>
                         </div>
 
-                        {/* Offer Type & Status */}
-                        <div className="flex items-center justify-between mb-4">
-                          <div className="flex items-center gap-2">
-                            {getOfferIcon(offer.offer_type)}
-                            <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                              isExpired 
-                                ? 'bg-gray-100 text-gray-700' 
-                                : offer.is_active 
-                                  ? 'bg-green-100 text-green-800'
-                                  : 'bg-yellow-100 text-yellow-800'
-                            }`}>
-                              {isExpired ? 'EXPIRED' : offer.is_active ? 'ACTIVE' : 'INACTIVE'}
-                            </span>
-                          </div>
-                          <span className="text-xs font-semibold bg-gray-100 text-gray-700 px-2.5 py-1 rounded-full">
-                            {offer.offer_sub_type === 'SPECIFIC_ITEM' ? 'Specific Items' : 'All Orders'}
-                          </span>
-                        </div>
-                        
-                        {/* Offer Title */}
-                        <h3 className="font-bold text-xl text-gray-900 mb-3 line-clamp-1">
-                          {offer.offer_title}
-                        </h3>
-                        
-                        {/* Coupon Code Display */}
-                        {offer.offer_type === 'COUPON' && offer.coupon_code && (
-                          <div className="mb-3 p-3 bg-gradient-to-r from-red-50 to-red-100 border border-red-200 rounded-lg">
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <div className="text-xs font-semibold text-red-700 mb-1">Coupon Code</div>
-                                <div className="text-lg font-bold text-red-800 font-mono">{offer.coupon_code}</div>
+                        {/* Offer details */}
+                        <div className="mb-2">
+                          {offer.offer_type === 'COUPON' && offer.coupon_code && (
+                            <div className="mb-1.5">
+                              <div className="flex items-center justify-between mb-1">
+                                <span className="text-xs font-semibold text-gray-600">Coupon Code</span>
+                                <button
+                                  onClick={() => copyToClipboard(offer.coupon_code!)}
+                                  className="text-xs font-medium text-gray-500 hover:text-orange-600 transition-colors flex items-center gap-1"
+                                >
+                                  <Copy size={10} />
+                                  Copy
+                                </button>
                               </div>
-                              <button
-                                onClick={() => copyToClipboard(offer.coupon_code!)}
-                                className="p-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-                              >
-                                <Copy size={16} />
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                        
-                        {/* Offer Description */}
-                        <div className="flex items-start gap-2 mb-4">
-                          <CheckCircle size={16} className="text-green-500 flex-shrink-0 mt-0.5" />
-                          <p className="text-gray-700 text-sm flex-1">
-                            {getOfferDescription(offer)}
-                          </p>
-                        </div>
-                        
-                        {/* Dates & Days Left */}
-                        <div className="flex items-center justify-between bg-gradient-to-r from-gray-50 to-gray-100 p-3 rounded-lg mb-5">
-                          <div className="flex items-center gap-2">
-                            <Calendar size={14} className="text-gray-500" />
-                            <span className="text-xs font-medium text-gray-700">
-                              {new Date(offer.valid_from).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} - {new Date(offer.valid_till).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
-                            </span>
-                          </div>
-                          {!isExpired && daysLeft > 0 && (
-                            <div className="flex items-center gap-1 bg-orange-100 text-orange-700 px-2 py-1 rounded-full">
-                              <Clock size={12} />
-                              <span className="text-xs font-bold">{daysLeft} day{daysLeft !== 1 ? 's' : ''} left</span>
+                              <div className="bg-gradient-to-r from-gray-50 to-gray-100 border border-gray-300 rounded-lg p-2">
+                                <code className="text-sm font-bold text-gray-900 font-mono tracking-wider block text-center">
+                                  {offer.coupon_code}
+                                </code>
+                              </div>
                             </div>
                           )}
-                        </div>
-                        
-                        {/* Image Preview */}
-                        {offer.image_url && (
-                          <div className="mb-5 rounded-lg overflow-hidden border border-gray-200">
-                            <img 
-                              src={offer.image_url} 
-                              alt={offer.offer_title}
-                              className="w-full h-32 object-cover hover:scale-105 transition-transform duration-300"
-                            />
+
+                          {/* Discount summary */}
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-1">
+                              <div className="p-1 rounded-lg bg-gradient-to-br from-gray-50 to-gray-100">
+                                {offer.offer_type === 'PERCENTAGE' ? (
+                                  <Percent size={14} className="text-green-600" />
+                                ) : offer.offer_type === 'FLAT' ? (
+                                  <DollarSign size={14} className="text-blue-600" />
+                                ) : offer.offer_type === 'BUY_N_GET_M' ? (
+                                  <Gift size={14} className="text-purple-600" />
+                                ) : (
+                                  <Tag size={14} className="text-red-600" />
+                                )}
+                              </div>
+                              <div>
+                                <p className="text-xs font-bold text-gray-900">
+                                  {getOfferDescription(offer)}
+                                </p>
+                                {offer.min_order_amount && (
+                                  <p className="text-[9px] text-gray-500 mt-0.5">
+                                    Min. order: ₹{offer.min_order_amount}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
                           </div>
-                        )}
-                        
+
+                          {/* Validity */}
+                          <div className="flex items-center justify-between text-[10px] text-gray-600 bg-gray-50 rounded-lg p-1.5">
+                            <div className="flex items-center gap-1">
+                              <Calendar size={12} className="text-gray-500" />
+                              <span className="font-medium">
+                                {new Date(offer.valid_from).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} - {new Date(offer.valid_till).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                              </span>
+                            </div>
+                            {!isExpired && daysLeft > 0 && (
+                              <div className="flex items-center gap-1 bg-gradient-to-r from-amber-100 to-orange-100 px-2 py-1 rounded-full">
+                                <Clock size={10} className="text-amber-700" />
+                                <span className="font-bold text-amber-800 text-[10px]">
+                                  {daysLeft} day{daysLeft !== 1 ? 's' : ''} left
+                                </span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Image preview if available */}
+                          {offer.image_url && (
+                            <div className="mt-0.5 rounded-lg overflow-hidden border border-gray-200">
+                              <img
+                                src={offer.image_url}
+                                alt={offer.offer_title}
+                                className="w-full h-10 object-cover"
+                              />
+                            </div>
+                          )}
+
+                          {/* Description if available */}
+                          {offer.offer_description && (
+                            <p className="text-[10px] text-gray-500 mt-0.5 line-clamp-2">
+                              {offer.offer_description}
+                            </p>
+                          )}
+                        </div>
+
                         {/* Actions */}
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => handleOpenModal(offer)}
-                            className="flex-1 py-2.5 px-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl font-semibold hover:from-blue-600 hover:to-blue-700 transition-all text-sm shadow-md hover:shadow-lg flex items-center justify-center gap-2"
-                          >
-                            <Edit2 size={14} /> Edit
-                          </button>
-                          <button
-                            onClick={() => handleDeleteOffer(offer.offer_id)}
-                            className="flex-1 py-2.5 px-3 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-xl font-semibold hover:from-red-600 hover:to-red-700 transition-all text-sm shadow-md hover:shadow-lg flex items-center justify-center gap-2"
-                          >
-                            <Trash2 size={14} /> Delete
-                          </button>
+                        <div className="flex items-center justify-between pt-1.5 border-t border-gray-100">
+                          <div className="flex items-center gap-1">
+                            <span className="text-[9px] text-gray-400">
+                              Updated: {new Date(offer.updated_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-0.5">
+                            <button
+                              onClick={() => handleOpenModal(offer)}
+                              className="p-1 rounded-lg bg-gradient-to-r from-blue-50 to-blue-100 text-blue-700 hover:from-blue-100 hover:to-blue-200 transition-all duration-200 group/btn"
+                              title="Edit offer"
+                            >
+                              <Edit2 size={12} />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteOffer(offer.offer_id)}
+                              className="p-1 rounded-lg bg-gradient-to-r from-red-50 to-red-100 text-red-700 hover:from-red-100 hover:to-red-200 transition-all duration-200 group/btn"
+                              title="Delete offer"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  )
+                  );
                 })}
               </div>
             )}
           </div>
         </div>
 
-        {/* Create/Edit Modal - FIXED SCROLLING ISSUE */}
+        {/* Create/Edit Modal - FIX: Updated input handlers to prevent overwriting */}
         {showModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-2 md:p-4 backdrop-blur-sm">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-2 md:p-4 backdrop-blur-[2px]">
             <div 
               ref={modalRef}
-              className="bg-white rounded-2xl w-full max-w-md border border-gray-200 shadow-2xl flex flex-col max-h-[90vh]"
+              className="bg-white w-full max-w-md border border-gray-200 shadow-2xl flex flex-col max-h-[90vh]"
+              style={{ borderRadius: '20px', overflow: 'hidden' }}
             >
               {/* Header - Fixed */}
               <div className="flex-shrink-0 flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-gray-50 to-white">
@@ -833,7 +942,7 @@ function OffersContent() {
                         <input
                           type="text"
                           value={formData.offer_title}
-                          onChange={e => setFormData({...formData, offer_title: e.target.value})}
+                          onChange={handleInputChange('offer_title')}
                           className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:border-orange-500 focus:ring-2 focus:ring-orange-100 text-sm transition-all"
                           placeholder="e.g., Summer Special, Weekend Discount"
                           required
@@ -846,7 +955,7 @@ function OffersContent() {
                         </label>
                         <textarea
                           value={formData.offer_description}
-                          onChange={e => setFormData({...formData, offer_description: e.target.value})}
+                          onChange={handleInputChange('offer_description')}
                           className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:border-orange-500 focus:ring-2 focus:ring-orange-100 text-sm transition-all"
                           placeholder="Describe your offer..."
                           rows={2}
@@ -1135,7 +1244,7 @@ function OffersContent() {
                                   type="number"
                                   min="1"
                                   value={formData.buy_quantity}
-                                  onChange={e => setFormData({...formData, buy_quantity: e.target.value})}
+                                  onChange={handleNumberInputChange('buy_quantity')}
                                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:border-orange-500 focus:ring-2 focus:ring-orange-100 text-sm"
                                   required
                                 />
@@ -1148,7 +1257,7 @@ function OffersContent() {
                                   type="number"
                                   min="1"
                                   value={formData.get_quantity}
-                                  onChange={e => setFormData({...formData, get_quantity: e.target.value})}
+                                  onChange={handleNumberInputChange('get_quantity')}
                                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:border-orange-500 focus:ring-2 focus:ring-orange-100 text-sm"
                                   required
                                 />
@@ -1164,20 +1273,16 @@ function OffersContent() {
                                 </label>
                                 <div className="relative">
                                   <input
-                                    type="number"
-                                    min="0"
-                                    step={formData.offer_type === 'PERCENTAGE' ? "0.01" : "1"}
+                                    type="text"
                                     value={formData.discount_value}
-                                    onChange={e => setFormData({...formData, discount_value: e.target.value})}
+                                    onChange={handleNumberInputChange('discount_value')}
                                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:border-orange-500 focus:ring-2 focus:ring-orange-100 text-sm"
                                     placeholder={formData.offer_type === 'PERCENTAGE' ? 'e.g., 10 for 10%' : 'e.g., 50 for ₹50'}
                                     required
                                   />
                                   {formData.offer_type === 'PERCENTAGE' ? (
                                     <div className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 font-bold">%</div>
-                                  ) : (
-                                    <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 font-bold">₹</div>
-                                  )}
+                                  ) : null}
                                 </div>
                               </div>
                               
@@ -1188,11 +1293,9 @@ function OffersContent() {
                                 <div className="relative">
                                   <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 font-bold">₹</span>
                                   <input
-                                    type="number"
-                                    min="0"
-                                    step="0.01"
+                                    type="text"
                                     value={formData.min_order_amount}
-                                    onChange={e => setFormData({...formData, min_order_amount: e.target.value})}
+                                    onChange={handleNumberInputChange('min_order_amount')}
                                     className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg focus:border-orange-500 focus:ring-2 focus:ring-orange-100 text-sm"
                                     placeholder="e.g., 500"
                                   />
@@ -1209,11 +1312,9 @@ function OffersContent() {
                               <div className="relative">
                                 <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 font-bold">₹</span>
                                 <input
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
+                                  type="text"
                                   value={formData.min_order_amount}
-                                  onChange={e => setFormData({...formData, min_order_amount: e.target.value})}
+                                  onChange={handleNumberInputChange('min_order_amount')}
                                   className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg focus:border-orange-500 focus:ring-2 focus:ring-orange-100 text-sm"
                                   placeholder="Order amount required for free item"
                                   required
@@ -1317,7 +1418,7 @@ function OffersContent() {
                           <input
                             type="date"
                             value={formData.valid_from}
-                            onChange={e => setFormData({...formData, valid_from: e.target.value})}
+                            onChange={handleInputChange('valid_from')}
                             className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:border-orange-500 focus:ring-2 focus:ring-orange-100 text-sm"
                             min={new Date().toISOString().split('T')[0]}
                             required
@@ -1330,7 +1431,7 @@ function OffersContent() {
                           <input
                             type="date"
                             value={formData.valid_till}
-                            onChange={e => setFormData({...formData, valid_till: e.target.value})}
+                            onChange={handleInputChange('valid_till')}
                             className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:border-orange-500 focus:ring-2 focus:ring-orange-100 text-sm"
                             min={formData.valid_from || new Date().toISOString().split('T')[0]}
                             required
@@ -1477,6 +1578,13 @@ function OffersContent() {
         
         .hide-scrollbar::-webkit-scrollbar {
           display: none;              /* Chrome, Safari and Opera */
+        }
+        
+        .line-clamp-2 {
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
         }
       `}</style>
     </>
