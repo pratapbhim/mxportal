@@ -2,11 +2,10 @@
 import React, { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation'
 import { Toaster, toast } from 'sonner'
-import { Plus, Edit2, Trash2, X, Upload, Package } from 'lucide-react'
+import { Plus, Edit2, Trash2, X, Upload, Package, ChevronDown, ChevronUp } from 'lucide-react'
 import { MXLayoutWhite } from '@/components/MXLayoutWhite'
-import { fetchRestaurantById, fetchRestaurantByName, fetchMenuItems, createMenuItem, updateMenuItem, updateMenuItemStock, deleteMenuItem, getImageUploadStatus } from '@/lib/database'
-import { Restaurant } from '@/lib/types'
-import { DEMO_RESTAURANT_ID } from '@/lib/constants'
+import { fetchStoreById, fetchStoreByName, fetchMenuItems, createMenuItem, updateMenuItem, updateMenuItemStock, deleteMenuItem, getImageUploadStatus } from '@/lib/database'
+import { MerchantStore } from '@/lib/types'
 
 export const dynamic = 'force-dynamic'
 
@@ -24,334 +23,451 @@ const CATEGORY_ITEMS = [
 ];
 
 // --- CustomizationEditor Component ---
-interface CustomizationOption {
-  name: string;
-  price: number;
+interface Addon {
+  addon_id: string;
+  customization_id: string;
+  addon_item_id: string; // references menu_items.item_id
+  addon_name: string;
+  addon_price: number;
 }
 
 interface Customization {
-  id: string;
-  name: string;
-  options: CustomizationOption[];
+  customization_id: string;
+  menu_item_id: string;
+  title: string;
+  required: boolean;
+  max_selection?: number;
+  addons: Addon[];
+}
+
+interface MenuItem {
+  item_id: string;
+  store_id: string;
+  item_name: string;
+  category_type: string;
+  food_category_item: string;
+  actual_price: number;
+  offer_percent?: number;
+  image_url?: string;
+  in_stock: boolean;
+  description: string;
+  has_customization: boolean;
+  has_addons: boolean;
+  customizations?: Customization[];
 }
 
 function CustomizationEditor({ customizations, setCustomizations }: { customizations: Customization[]; setCustomizations: (c: Customization[]) => void }) {
-  const [newCustomizationName, setNewCustomizationName] = useState('');
-  const [newOptionName, setNewOptionName] = useState('');
-  const [newOptionPrice, setNewOptionPrice] = useState('');
-  const [selectedCustomization, setSelectedCustomization] = useState<string | null>(null);
+  const [expandedCustomization, setExpandedCustomization] = useState<number | null>(null);
 
   const addCustomization = () => {
-    if (!newCustomizationName.trim()) return;
     setCustomizations([
       ...customizations,
-      { id: Date.now().toString(), name: newCustomizationName, options: [] }
+      { 
+        title: '', 
+        required: false, 
+        max_selection: 1, 
+        addons: [] 
+      }
     ]);
-    setNewCustomizationName('');
+    setExpandedCustomization(customizations.length);
   };
 
-  const addOption = (customizationId: string) => {
-    if (!newOptionName.trim() || isNaN(Number(newOptionPrice))) return;
-    setCustomizations(customizations.map(c =>
-      c.id === customizationId
-        ? { ...c, options: [...c.options, { name: newOptionName, price: Number(newOptionPrice) }] }
-        : c
-    ));
-    setNewOptionName('');
-    setNewOptionPrice('');
-    setSelectedCustomization(customizationId);
+  const updateCustomization = (index: number, field: keyof Customization, value: any) => {
+    const updated = [...customizations];
+    updated[index] = { ...updated[index], [field]: value };
+    setCustomizations(updated);
   };
 
-  const removeCustomization = (customizationId: string) => {
-    setCustomizations(customizations.filter(c => c.id !== customizationId));
+  const removeCustomization = (index: number) => {
+    setCustomizations(customizations.filter((_, i) => i !== index));
+    if (expandedCustomization === index) {
+      setExpandedCustomization(null);
+    }
   };
 
-  const removeOption = (customizationId: string, optionIdx: number) => {
-    setCustomizations(customizations.map(c =>
-      c.id === customizationId
-        ? { ...c, options: c.options.filter((_, i) => i !== optionIdx) }
-        : c
-    ));
+  const addAddon = (customizationIndex: number) => {
+    const updated = [...customizations];
+    updated[customizationIndex].addons.push({
+      addon_name: '',
+      addon_price: 0
+    });
+    setCustomizations(updated);
+  };
+
+  const updateAddon = (customizationIndex: number, addonIndex: number, field: keyof Addon, value: any) => {
+    const updated = [...customizations];
+    updated[customizationIndex].addons[addonIndex] = {
+      ...updated[customizationIndex].addons[addonIndex],
+      [field]: field === 'addon_price' ? Number(value) : value
+    };
+    setCustomizations(updated);
+  };
+
+  const removeAddon = (customizationIndex: number, addonIndex: number) => {
+    const updated = [...customizations];
+    updated[customizationIndex].addons = updated[customizationIndex].addons.filter((_, i) => i !== addonIndex);
+    setCustomizations(updated);
   };
 
   return (
     <div className="space-y-3">
-      {customizations.map((c, idx) => (
-        <div key={c.id} className="border border-gray-200 rounded-lg p-3 mb-2 bg-gray-100 shadow-sm">
+      {customizations.map((customization, idx) => (
+        <div key={idx} className="border border-gray-200 rounded-lg p-3 mb-2 bg-gray-50 shadow-sm">
           <div className="flex items-center justify-between mb-2">
-            <span className="font-semibold text-gray-800 text-base">{c.name}</span>
-            <button type="button" className="text-red-500 text-xs ml-2 hover:underline" onClick={() => removeCustomization(c.id)}>Remove</button>
+            <div className="flex items-center gap-2 flex-1">
+              <input
+                type="text"
+                placeholder="Customization title (e.g., Spice Level, Toppings)"
+                className="flex-1 px-3 py-1.5 border border-gray-200 rounded-md text-sm"
+                value={customization.title}
+                onChange={(e) => updateCustomization(idx, 'title', e.target.value)}
+              />
+              <button
+                type="button"
+                onClick={() => setExpandedCustomization(expandedCustomization === idx ? null : idx)}
+                className="p-1 hover:bg-gray-200 rounded"
+              >
+                {expandedCustomization === idx ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+              </button>
+            </div>
+            <button
+              type="button"
+              className="ml-2 px-2 py-1 text-xs text-red-600 bg-red-50 rounded hover:bg-red-100"
+              onClick={() => removeCustomization(idx)}
+            >
+              Remove
+            </button>
           </div>
-          <div className="space-y-1">
-            {c.options.length === 0 && (
-              <div className="text-xs text-gray-400 italic">No options added yet</div>
-            )}
-            {c.options.map((opt, i) => (
-              <div key={i} className="flex items-center gap-2 pl-2 py-1">
-                <span className="text-gray-700 text-sm">{opt.name}</span>
-                <span className="text-xs text-gray-500">₹{opt.price}</span>
-                <button type="button" className="text-red-400 text-xs hover:underline" onClick={() => removeOption(c.id, i)}>Remove</button>
+          
+          {expandedCustomization === idx && (
+            <div className="mt-3 space-y-3 pl-2 border-l-2 border-gray-300">
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={customization.required}
+                    onChange={(e) => updateCustomization(idx, 'required', e.target.checked)}
+                    className="rounded"
+                  />
+                  <span className="text-sm text-gray-700">Required</span>
+                </label>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-700">Max Selection:</span>
+                  <input
+                    type="number"
+                    min="1"
+                    value={customization.max_selection || 1}
+                    onChange={(e) => updateCustomization(idx, 'max_selection', parseInt(e.target.value) || 1)}
+                    className="w-16 px-2 py-1 border border-gray-200 rounded text-sm"
+                  />
+                </div>
               </div>
-            ))}
-            {selectedCustomization === c.id ? (
-              <div className="flex flex-wrap gap-2 mt-2 items-center">
-                <input
-                  type="text"
-                  placeholder="Option name"
-                  className="border border-gray-300 bg-white rounded px-2 py-1 text-xs w-32 text-gray-900 focus:outline-none focus:ring-2 focus:ring-orange-400"
-                  value={newOptionName}
-                  onChange={e => setNewOptionName(e.target.value)}
-                  style={{ minWidth: '80px' }}
-                />
-                <input
-                  type="number"
-                  placeholder="Price"
-                  className="border border-gray-300 bg-white rounded px-2 py-1 text-xs w-20 text-gray-900 focus:outline-none focus:ring-2 focus:ring-orange-400"
-                  value={newOptionPrice}
-                  onChange={e => setNewOptionPrice(e.target.value)}
-                  style={{ minWidth: '60px' }}
-                />
-                <button type="button" className="text-green-600 text-xs font-bold" onClick={() => addOption(c.id)}>Add</button>
-                <button type="button" className="text-gray-400 text-xs" onClick={() => setSelectedCustomization(null)}>Cancel</button>
+              
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-medium text-gray-700">Addons/Options</h4>
+                  <button
+                    type="button"
+                    className="px-2 py-1 text-xs text-blue-600 bg-blue-50 rounded hover:bg-blue-100"
+                    onClick={() => addAddon(idx)}
+                  >
+                    + Add Addon
+                  </button>
+                </div>
+                
+                {customization.addons.map((addon, addonIdx) => (
+                  <div key={addonIdx} className="flex items-center gap-2 bg-white p-2 rounded border">
+                    <input
+                      type="text"
+                      placeholder="Addon name"
+                      className="flex-1 px-2 py-1 border border-gray-200 rounded text-sm"
+                      value={addon.addon_name}
+                      onChange={(e) => updateAddon(idx, addonIdx, 'addon_name', e.target.value)}
+                    />
+                    <div className="flex items-center gap-1">
+                      <span className="text-sm text-gray-600">₹</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="Price"
+                        className="w-24 px-2 py-1 border border-gray-200 rounded text-sm"
+                        value={addon.addon_price}
+                        onChange={(e) => updateAddon(idx, addonIdx, 'addon_price', e.target.value)}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      className="px-2 py-1 text-xs text-red-600 hover:text-red-800"
+                      onClick={() => removeAddon(idx, addonIdx)}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
               </div>
-            ) : (
-              <button type="button" className="text-blue-600 text-xs mt-2 hover:underline" onClick={() => setSelectedCustomization(c.id)}>+ Add Option</button>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       ))}
-      <div className="flex gap-2 mt-3 items-center bg-gray-50 p-2 rounded">
-        <input
-          type="text"
-          placeholder="Customization group (e.g. Size, Toppings)"
-          className="border border-gray-300 bg-white rounded px-2 py-1 text-xs w-64 text-gray-900 focus:outline-none focus:ring-2 focus:ring-orange-400"
-          value={newCustomizationName}
-          onChange={e => setNewCustomizationName(e.target.value)}
-          style={{ minWidth: '120px' }}
-        />
-        <button type="button" className="text-green-600 text-xs font-bold" onClick={addCustomization}>Add Customization</button>
-      </div>
+      
+      <button
+        type="button"
+        className="w-full py-2 px-3 text-sm font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
+        onClick={addCustomization}
+      >
+        + Add Customization Group
+      </button>
     </div>
   );
 }
 
-interface MenuItem {
-  id: string;
-  name: string;
-  category: 'VEG' | 'NON_VEG' | 'BEVERAGES' | 'DESSERTS' | 'OTHER' | string;
-  category_item: string;
-  price: number;
-  offer_price?: number;
-  image_url?: string;
-  in_stock: boolean;
-  description?: string;
-  customizations?: Customization[];
-}
-
 function MenuContent() {
+  const searchParams = useSearchParams();
+  const [store, setStore] = useState<MerchantStore | null>(null);
+  const [storeId, setStoreId] = useState<string | null>(null);
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('ALL');
+
+  // Add modal state
   const [showAddModal, setShowAddModal] = useState(false);
   const [addForm, setAddForm] = useState({
-    name: '',
-    category: 'VEG',
-    category_item: '',
+    item_name: '',
+    category_type: 'VEG' as 'VEG' | 'NON_VEG' | 'BEVERAGES' | 'DESSERTS' | 'OTHER',
+    food_category_item: '',
     customCategory: '',
-    price: '',
-    offerPrice: '',
+    actual_price: '',
+    offer_percent: '',
     description: '',
     in_stock: true,
     image_url: '',
     image: null as File | null,
+    has_customization: false,
+    has_addons: false,
     customizations: [] as Customization[],
   });
   const [imagePreview, setImagePreview] = useState('');
   const [addError, setAddError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
-  const searchParams = useSearchParams()
-  const [restaurant, setRestaurant] = useState<Restaurant | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [restaurantId, setRestaurantId] = useState<string | null>(null)
-
-  const [menuItems, setMenuItems] = useState<MenuItem[]>([])
-  const [viewCustModal, setViewCustModal] = useState<{ open: boolean; item: MenuItem | null }>({ open: false, item: null });
-  const [showModal, setShowModal] = useState(false)
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [selectedCategory, setSelectedCategory] = useState<string>('ALL')
-  const [searchTerm, setSearchTerm] = useState('')
-  
-  const [showDeleteModal, setShowDeleteModal] = useState(false)
-  const [deleteItemId, setDeleteItemId] = useState<string | null>(null)
-  const [isDeleting, setIsDeleting] = useState(false)
-
-  const [showStockModal, setShowStockModal] = useState(false)
-  const [stockToggleItem, setStockToggleItem] = useState<{ id: string; newStatus: boolean } | null>(null)
-  const [isTogglingStock, setIsTogglingStock] = useState(false)
-
-  const [showEditModal, setShowEditModal] = useState(false)
+  // Edit modal state
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({
-    name: '',
-    category: 'VEG',
-    category_item: '',
+    item_name: '',
+    category_type: 'VEG' as 'VEG' | 'NON_VEG' | 'BEVERAGES' | 'DESSERTS' | 'OTHER',
+    food_category_item: '',
     customCategory: '',
-    price: '',
-    offerPrice: '',
+    actual_price: '',
+    offer_price: '',
     description: '',
     in_stock: true,
     image_url: '',
     image: null as File | null,
+    has_customization: false,
+    has_addons: false,
     customizations: [] as Customization[],
   });
   const [editImagePreview, setEditImagePreview] = useState('');
   const [editError, setEditError] = useState('');
-  const [isSavingEdit, setIsSavingEdit] = useState(false)
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+
+  // Delete modal state
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteItemId, setDeleteItemId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Stock modal state
+  const [showStockModal, setShowStockModal] = useState(false);
+  const [stockToggleItem, setStockToggleItem] = useState<{ item_id: string; newStatus: boolean } | null>(null);
+  const [isTogglingStock, setIsTogglingStock] = useState(false);
+
+  // View customizations modal
+  const [viewCustModal, setViewCustModal] = useState<{ open: boolean; item: MenuItem | null }>({ open: false, item: null });
 
   const [formData, setFormData] = useState({
     name: '',
-    category: 'VEG',
+    category_type: 'VEG',
     customCategory: '',
-    price: '',
+    actual_price: '',
     description: '',
     in_stock: true,
     image: null as File | null,
     image_url: '',
-    hasCustomizations: false,
-    customizations: [] as Array<{ id: string; name: string; options: string[] }>
+    has_customization: false,
+    has_addons: false,
+    customizations: [] as Customization[]
   })
 
   const [imageUploadStatus, setImageUploadStatus] = useState<any>(null)
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false)
   const [isDraggingImage, setIsDraggingImage] = useState(false)
+  const [storeError, setStoreError] = useState<string | null>(null)
 
   useEffect(() => {
-    const getRestaurantId = async () => {
-      let id = searchParams.get('restaurantId')
-      if (!id) id = typeof window !== 'undefined' ? localStorage.getItem('selectedRestaurantId') : null
-      if (!id) id = DEMO_RESTAURANT_ID
-      setRestaurantId(id)
+    const getStoreId = async () => {
+      let id = searchParams.get('storeId')
+      if (!id) id = typeof window !== 'undefined' ? localStorage.getItem('selectedStoreId') : null
+      setStoreId(id)
     }
-    getRestaurantId()
+    getStoreId()
   }, [searchParams])
 
   useEffect(() => {
-    if (!restaurantId) return
+    if (!storeId) {
+      // If no storeId found, show error and stop loading
+      setStoreError('Please select a store first. No store ID found in URL or localStorage.')
+      setIsLoading(false)
+      return
+    }
+    
     const loadData = async () => {
       setIsLoading(true)
+      setStoreError(null)
       try {
-        let data = await fetchRestaurantById(restaurantId)
-        if (!data && !restaurantId.match(/^GMM\d{4}$/)) {
-          data = await fetchRestaurantByName(restaurantId)
+        let data = await fetchStoreById(storeId)
+        if (!data) {
+          data = await fetchStoreByName(storeId)
         }
-        if (data) setRestaurant(data)
         
-        const items = await fetchMenuItems(restaurantId)
+        if (!data) {
+          setStoreError(`Store not found with ID/Name: ${storeId}`)
+          setIsLoading(false)
+          return
+        }
+        
+        setStore(data)
+        
+        const items = await fetchMenuItems(storeId)
         const mappedItems = items.map((item: any) => ({
-          id: item.id,
-          name: item.item_name,
-          category: item.category,
-          category_item: item.category_item || '',
-          price: item.price,
-          offer_price: item.offer_price || undefined,
+          item_id: item.item_id,
+          store_id: item.store_id,
+          item_name: item.item_name,
+          category_type: item.category_type,
+          food_category_item: item.food_category_item,
+          actual_price: item.actual_price,
+          offer_percent: item.offer_percent || 0,
           image_url: item.image_url,
           in_stock: item.in_stock,
           description: item.description,
-          customizations: (() => {
-            if (Array.isArray(item.customizations)) return item.customizations;
-            if (typeof item.customizations === 'string') {
-              try {
-                const parsed = JSON.parse(item.customizations);
-                return Array.isArray(parsed) ? parsed : [];
-              } catch {
-                return [];
-              }
-            }
-            if (item.customizations && typeof item.customizations === 'object') {
-              return Array.isArray(item.customizations) ? item.customizations : [];
-            }
-            return [];
-          })()
+          has_customization: item.has_customization,
+          has_addons: item.has_addons,
+          customizations: item.customizations || []
         }))
-        console.log('Loaded items with category_item:', mappedItems.map(i => ({ name: i.name, category_item: i.category_item })))
+        console.log('Loaded items with food_category_item:', mappedItems.map(i => ({ item_name: i.item_name, food_category_item: i.food_category_item })))
         setMenuItems(mappedItems)
 
-        const status = await getImageUploadStatus(restaurantId)
+        const status = await getImageUploadStatus(storeId)
         setImageUploadStatus(status)
       } catch (error) {
         console.error('Error loading menu:', error)
+        setStoreError('Error loading store data. Please try again.')
       } finally {
         setIsLoading(false)
       }
     }
     loadData()
-  }, [restaurantId])
+  }, [storeId])
 
   async function handleAddItem() {
+    if (!storeId) {
+      toast.error('Please select a store first')
+      return
+    }
+    
     setAddError('');
-    if (!addForm.name.trim()) return setAddError('Name is required');
-    if (!addForm.category_item.trim() && !addForm.customCategory.trim()) 
+    if (!addForm.item_name.trim()) return setAddError('Name is required');
+    if (!addForm.food_category_item.trim() && !addForm.customCategory.trim()) 
       return setAddError('Please select a food item or enter custom category');
-    if (!addForm.price.trim()) return setAddError('Actual price is required');
-    if (addForm.offerPrice && !addForm.price) return setAddError('Actual price is required if offer price is set');
-    
-    // Determine final category_item: if customCategory is filled, use that, otherwise use category_item
-    const finalCategoryItem = addForm.customCategory.trim() ? addForm.customCategory : addForm.category_item;
-    
+    if (!addForm.actual_price.trim()) return setAddError('Actual price is required');
+    if (addForm.offer_percent && !addForm.actual_price) return setAddError('Actual price is required if offer percent is set');
+
+    // Determine final food_category_item: if customCategory is filled, use that, otherwise use food_category_item
+    const finalFoodCategoryItem = addForm.customCategory.trim() ? addForm.customCategory : addForm.food_category_item;
+
+    // Check if has customizations or addons
+    const hasCustomizations = addForm.customizations.length > 0;
+    const hasAddons = addForm.customizations.some(c => c.addons.length > 0);
+
     setIsSaving(true);
     try {
       let imageUrl = addForm.image_url;
+      // If an image file is selected, upload to R2 and get the public URL
       if (addForm.image) {
-        imageUrl = imagePreview;
+        const formData = new FormData();
+        formData.append('file', addForm.image);
+        formData.append('parent', storeId || 'unknown');
+        const uploadRes = await fetch('/api/upload/r2', {
+          method: 'POST',
+          body: formData,
+        });
+        if (!uploadRes.ok) {
+          setAddError('Image upload failed.');
+          setIsSaving(false);
+          return;
+        }
+        const uploadData = await uploadRes.json();
+        imageUrl = uploadData.url;
       }
 
-      const offerPriceValue = addForm.offerPrice.trim() ? Number(addForm.offerPrice) : null;
+      const offerPercentValue = addForm.offer_percent.trim() ? Number(addForm.offer_percent) : 0;
       const customizations = addForm.customizations || [];
 
       const newItem = {
-        item_name: addForm.name,
-        category: addForm.category,
-        category_item: finalCategoryItem,
-        price: Number(addForm.price),
-        offer_price: offerPriceValue,
+        item_name: addForm.item_name,
+        category_type: addForm.category_type,
+        food_category_item: finalFoodCategoryItem,
+        actual_price: Number(addForm.actual_price),
+        offer_percent: offerPercentValue,
         description: addForm.description,
         in_stock: addForm.in_stock,
         image_url: imageUrl || null,
+        has_customization: hasCustomizations,
+        has_addons: hasAddons,
         customizations,
       };
 
-      // Debug log for restaurantId
-      console.log('Menu Item Save: restaurantId', restaurantId);
+      console.log('Menu Item Save: storeId', storeId);
       const result = await createMenuItem({
-        restaurant_id: restaurantId || '',
+        restaurant_id: storeId || '',
         ...newItem
       });
-      
-      if (result && result.id) {
+
+      if (result && result.item_id) {
         setMenuItems(prev => [
           {
-            id: result.id,
-            name: newItem.item_name,
-            category: newItem.category,
-            category_item: newItem.category_item,
-            price: newItem.price,
-            offer_price: newItem.offer_price === null ? undefined : newItem.offer_price,
+            item_id: result.item_id,
+            store_id: storeId,
+            item_name: newItem.item_name,
+            category_type: newItem.category_type,
+            food_category_item: newItem.food_category_item,
+            actual_price: newItem.actual_price,
+            offer_percent: newItem.offer_percent,
             image_url: newItem.image_url === null ? undefined : newItem.image_url,
             in_stock: newItem.in_stock,
             description: newItem.description,
+            has_customization: newItem.has_customization,
+            has_addons: newItem.has_addons,
             customizations: newItem.customizations,
           },
           ...prev,
         ]);
         setShowAddModal(false);
         setAddForm({ 
-          name: '', 
-          category: 'VEG', 
-          category_item: '', 
+          item_name: '', 
+          category_type: 'VEG', 
+          food_category_item: '', 
           customCategory: '', 
-          price: '', 
-          offerPrice: '', 
+          actual_price: '', 
+          offer_percent: '', 
           description: '', 
           in_stock: true, 
           image_url: '', 
           image: null, 
+          has_customization: false,
+          has_addons: false,
           customizations: [] 
         });
         setImagePreview('');
@@ -367,83 +483,111 @@ function MenuContent() {
   }
 
   const handleOpenEditModal = (item: MenuItem) => {
-    setEditingId(item.id);
+    setEditingId(item.item_id);
     setEditImagePreview(item.image_url || '');
     setEditForm({
-      name: item.name,
-      category: item.category,
-      category_item: item.category_item || '',
+      item_name: item.item_name || '',
+      category_type: item.category_type || '',
+      food_category_item: item.food_category_item || '',
       customCategory: '',
-      price: item.price.toString(),
-      offerPrice: item.offer_price?.toString() || '',
+      actual_price: item.actual_price !== undefined && item.actual_price !== null ? item.actual_price.toString() : '',
+      offer_percent: item.offer_percent !== undefined && item.offer_percent !== null ? item.offer_percent.toString() : '',
       description: item.description || '',
       in_stock: item.in_stock,
       image_url: item.image_url || '',
       image: null,
+      has_customization: item.has_customization,
+      has_addons: item.has_addons,
       customizations: item.customizations || [],
     });
     setShowEditModal(true);
   };
 
   async function handleSaveEdit() {
-    setEditError('');
-    if (!editForm.name.trim()) return setEditError('Name is required');
-    if (!editForm.category_item.trim() && !editForm.customCategory.trim()) 
-      return setEditError('Please select a food item or enter custom category');
-    if (!editForm.price.trim()) return setEditError('Actual price is required');
-    if (editForm.offerPrice && !editForm.price) return setEditError('Actual price is required if offer price is set');
-    
-    toast.info('Saving changes... This will update the item in your menu.');
-    
+    setEditError("");
+    // Defensive: always treat as string
+    const itemName = (editForm.item_name ?? "").toString();
+    const foodCategoryItem = (editForm.food_category_item ?? "").toString();
+    const customCategory = (editForm.customCategory ?? "").toString();
+    const actualPrice = (editForm.actual_price ?? "").toString();
+    const offerPercent = (editForm.offer_percent ?? "").toString();
+    // If offer_price is present (legacy), treat as string
+    const offerPrice = (editForm.offer_price ?? "").toString();
+    const description = (editForm.description ?? "").toString();
+
+    if (!itemName.trim()) return setEditError("Name is required");
+    if (!foodCategoryItem.trim() && !customCategory.trim())
+      return setEditError("Please select a food item or enter custom category");
+    if (!actualPrice.trim()) return setEditError("Actual price is required");
+    if (offerPrice && !actualPrice) return setEditError("Actual price is required if offer price is set");
+
+    // Check if has customizations or addons
+    const hasCustomizations = Array.isArray(editForm.customizations) && editForm.customizations.length > 0;
+    const hasAddons = Array.isArray(editForm.customizations) && editForm.customizations.some((c: any) => Array.isArray(c.addons) && c.addons.length > 0);
+
+    toast.info("Saving changes... This will update the item in your menu.");
+
     setIsSavingEdit(true);
     try {
       let imageUrl = editForm.image_url;
       if (editForm.image) {
         imageUrl = editImagePreview;
       }
-      
-      const offerPriceValue = editForm.offerPrice.trim() ? Number(editForm.offerPrice) : null;
-      
-      // Determine final category_item: if customCategory is filled, use that, otherwise use category_item
-      const finalCategoryItem = editForm.customCategory.trim() ? editForm.customCategory : editForm.category_item;
-      
+
+      // Use offer_percent (new) or offer_price (legacy)
+      const offerPercentValue = offerPercent.trim() ? Number(offerPercent) : 0;
+      const offerPriceValue = offerPrice.trim() ? Number(offerPrice) : null;
+
+      // Determine final food_category_item: if customCategory is filled, use that, otherwise use food_category_item
+      const finalFoodCategoryItem = customCategory.trim() ? customCategory : foodCategoryItem;
+
       const updatedItem = {
-        item_name: editForm.name,
-        category: editForm.category,
-        category_item: finalCategoryItem,
-        price: Number(editForm.price),
+        item_name: itemName,
+        category_type: editForm.category_type,
+        food_category_item: finalFoodCategoryItem,
+        actual_price: Number(actualPrice),
+        offer_percent: offerPercentValue,
         offer_price: offerPriceValue,
-        description: editForm.description,
+        description,
         in_stock: editForm.in_stock,
-        image_url: typeof imageUrl === 'string' && imageUrl.startsWith('http') ? imageUrl : editForm.image_url,
-        customizations: editForm.customizations || [],
+        image_url: typeof imageUrl === "string" && imageUrl.startsWith("http") ? imageUrl : editForm.image_url,
+        has_customization: hasCustomizations,
+        has_addons: hasAddons,
+        customizations: Array.isArray(editForm.customizations) ? editForm.customizations : [],
       };
-      
-      const result = await updateMenuItem(editingId || '', updatedItem);
-      
+
+      const result = await updateMenuItem(editingId || "", updatedItem);
+
       if (result) {
-        setMenuItems(prev => prev.map(item => 
-          item.id === editingId ? {
-            ...item,
-            name: result.item_name,
-            category: result.category,
-            category_item: result.category_item,
-            price: result.price,
-            offer_price: result.offer_price === null ? undefined : result.offer_price,
-            image_url: result.image_url,
-            in_stock: result.in_stock,
-            description: result.description,
-            customizations: result.customizations || [],
-          } : item
-        ));
+        setMenuItems((prev) =>
+          prev.map((item) =>
+            item.id === editingId
+              ? {
+                  ...item,
+                  name: result.item_name,
+                  category_type: result.category_type,
+                  food_category_item: result.food_category_item,
+                  actual_price: result.actual_price,
+                  offer_percent: result.offer_percent,
+                  offer_price: result.offer_price === null ? undefined : result.offer_price,
+                  image_url: result.image_url,
+                  in_stock: result.in_stock,
+                  description: result.description,
+                  has_customization: result.has_customization,
+                  has_addons: result.has_addons,
+                  customizations: result.customizations || [],
+                }
+              : item
+          )
+        );
         setShowEditModal(false);
-        toast.success('Item updated successfully!');
+        toast.success("Item updated successfully!");
       } else {
-        setEditError('Failed to update item.');
+        setEditError("Failed to update item.");
       }
     } catch (e) {
-      console.error('Error updating item:', e);
-      setEditError('Error updating item.');
+      console.error("Error updating item:", e);
+      setEditError("Error updating item.");
     }
     setIsSavingEdit(false);
   }
@@ -455,7 +599,7 @@ function MenuContent() {
     try {
       const result = await deleteMenuItem(deleteItemId);
       if (result) {
-        setMenuItems(prev => prev.filter(item => item.id !== deleteItemId));
+        setMenuItems(prev => prev.filter(item => item.item_id !== deleteItemId));
         setShowDeleteModal(false);
         setDeleteItemId(null);
         toast.success('Item deleted successfully!');
@@ -474,10 +618,11 @@ function MenuContent() {
     
     setIsTogglingStock(true);
     try {
-      const result = await updateMenuItemStock(stockToggleItem.id, stockToggleItem.newStatus);
+      const result = await updateMenuItemStock(stockToggleItem.item_id, stockToggleItem.newStatus);
       if (result) {
-        setMenuItems(prev => prev.map(item => 
-          item.id === stockToggleItem.id 
+        // Update the menuItems state directly for instant UI feedback
+        setMenuItems(prev => prev.map(item =>
+          item.item_id === stockToggleItem.item_id
             ? { ...item, in_stock: stockToggleItem.newStatus }
             : item
         ));
@@ -488,6 +633,7 @@ function MenuContent() {
         toast.error('Failed to update stock status.');
       }
     } catch (error) {
+      // Only show error if the update call actually fails
       toast.error('Error updating stock status.');
     } finally {
       setIsTogglingStock(false);
@@ -538,14 +684,38 @@ function MenuContent() {
   
   const filteredItems = selectedCategory === 'ALL'
     ? menuItems
-    : menuItems.filter(item => item.category === selectedCategory);
+    : menuItems.filter(item => item.category_type === selectedCategory);
     
   const searchedItems = searchTerm
     ? filteredItems.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()))
     : filteredItems;
 
+  // Show error if no store is selected
+  if (storeError) {
+    return (
+      <MXLayoutWhite storeName={null} storeId={null}>
+        <div className="min-h-screen bg-white flex items-center justify-center">
+          <div className="text-center p-8">
+            <Package size={64} className="text-gray-300 mb-4 mx-auto" />
+            <h2 className="text-2xl font-bold text-gray-800 mb-2">Store Not Selected</h2>
+            <p className="text-gray-600 mb-6">{storeError}</p>
+            <div className="space-y-3">
+              <p className="text-gray-500 text-sm">How to select a store:</p>
+              <ul className="text-left text-gray-600 text-sm max-w-md mx-auto">
+                <li className="mb-2">1. Go to the Stores dashboard</li>
+                <li className="mb-2">2. Select a store from the list</li>
+                <li className="mb-2">3. Click on "Menu Management" for that store</li>
+                <li>4. Or make sure the URL contains <code className="bg-gray-100 px-2 py-1 rounded">?storeId=YOUR_STORE_ID</code></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </MXLayoutWhite>
+    );
+  }
+
   return (
-    <MXLayoutWhite restaurantName={restaurant?.restaurant_name} restaurantId={restaurantId || DEMO_RESTAURANT_ID}>
+    <MXLayoutWhite storeName={store?.store_name} storeId={storeId || ''}>
       <div className="min-h-screen bg-white">
         <Toaster />
         <style>{globalStyles}</style>
@@ -580,7 +750,10 @@ function MenuContent() {
             <>
               <div>
                 <h1 className="text-2xl font-bold text-gray-900">Menu Items</h1>
-                <p className="text-gray-600 mt-1 text-sm">Manage your restaurant menu items</p>
+                <p className="text-gray-600 mt-1 text-sm">Manage your store menu items</p>
+                {store && (
+                  <p className="text-xs text-gray-500 mt-1">Store: {store.store_name} ({store.store_id})</p>
+                )}
               </div>
               <div className="flex flex-col md:flex-row items-start md:items-center gap-4">
                 <div className={`bg-gray-50 px-4 py-3 rounded-lg border border-gray-200`}>
@@ -684,21 +857,21 @@ function MenuContent() {
               <p className="text-gray-500 mt-2">
                 {searchTerm ? 'Try a different search term' : 'Add your first menu item to get started'}
               </p>
+              {store && (
+                <p className="text-sm text-gray-400 mt-4">Store: {store.store_name}</p>
+              )}
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {searchedItems.map((item) => {
-                const hasOffer = typeof item.offer_price === 'number' && item.offer_price < item.price;
-                const discountPercent = hasOffer && typeof item.offer_price === 'number'
-                  ? Math.round(((item.price - item.offer_price) / item.price) * 100)
-                  : 0;
+                const discountedPrice = Math.round(item.actual_price * (1 - (item.offer_percent || 0) / 100));
                 return (
-                  <div key={item.id} className="bg-white rounded-xl border border-gray-300 shadow-sm hover:shadow-md transition-shadow min-h-[160px]">
+                  <div key={item.item_id} className="bg-white rounded-xl border border-gray-300 shadow-sm hover:shadow-md transition-shadow min-h-[160px]">
                     <div className="flex p-3 h-full">
                       <div className="w-16 h-16 flex-shrink-0 mr-3">
                         <img 
                           src={item.image_url && item.image_url !== '' ? item.image_url : '/placeholder.png'} 
-                          alt={item.name} 
+                          alt={item.item_name} 
                           className="w-full h-full object-cover rounded-lg border border-gray-200" 
                         />
                       </div>
@@ -706,10 +879,10 @@ function MenuContent() {
                         <div className="flex items-start justify-between mb-1">
                           <div className="flex-1 min-w-0">
                             <div className="font-bold text-sm text-gray-900 truncate">
-                              {item.name}
+                              {item.item_name}
                             </div>
                             <div className="text-xs text-gray-500 font-bold uppercase tracking-wide mt-0.5">
-                              {item.category} {item.category_item && `- ${item.category_item}`}
+                              {item.category_type} {item.food_category_item && `- ${item.food_category_item}`}
                             </div>
                           </div>
                           <label className="inline-flex items-center cursor-pointer ml-2 flex-shrink-0">
@@ -717,7 +890,7 @@ function MenuContent() {
                               type="checkbox"
                               checked={item.in_stock}
                               onChange={() => {
-                                setStockToggleItem({ id: item.id, newStatus: !item.in_stock });
+                                setStockToggleItem({ item_id: item.item_id, newStatus: !item.in_stock });
                                 setShowStockModal(true);
                               }}
                               className="sr-only peer"
@@ -728,16 +901,16 @@ function MenuContent() {
                           </label>
                         </div>
                         <div className="flex items-center gap-1.5 mb-2">
-                          {hasOffer ? (
+                          {item.offer_percent && item.offer_percent > 0 ? (
                             <>
-                              <span className="text-base font-bold text-orange-700">₹{item.offer_price}</span>
-                              <span className="text-sm font-semibold text-gray-500 line-through">₹{item.price}</span>
+                              <span className="text-base font-bold text-orange-700">₹{discountedPrice}</span>
+                              <span className="text-sm font-semibold text-gray-500 line-through">₹{item.actual_price}</span>
                               <span className="ml-1 px-1.5 py-0.5 rounded bg-green-100 text-green-700 text-xs font-bold">
-                                {discountPercent}% OFF
+                                {item.offer_percent}% OFF
                               </span>
                             </>
                           ) : (
-                            <span className="text-base font-bold text-orange-700">₹{item.price}</span>
+                            <span className="text-base font-bold text-orange-700">₹{item.actual_price}</span>
                           )}
                         </div>
                         {item.description && (
@@ -745,6 +918,19 @@ function MenuContent() {
                             {item.description}
                           </p>
                         )}
+                        {/* Customization/Addon indicators */}
+                        <div className="flex flex-wrap gap-1 mb-2">
+                          {item.has_customization && (
+                            <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-semibold rounded">
+                              Customization
+                            </span>
+                          )}
+                          {item.has_addons && (
+                            <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs font-semibold rounded">
+                              Addons
+                            </span>
+                          )}
+                        </div>
                         <div className="flex flex-row gap-2 mt-3 w-full">
                           {Array.isArray(item.customizations) && item.customizations.length > 0 && (
                             <button
@@ -753,7 +939,7 @@ function MenuContent() {
                               type="button"
                               style={{ minWidth: 0 }}
                             >
-                              Cust.
+                              View Options
                             </button>
                           )}
                           <button
@@ -765,7 +951,7 @@ function MenuContent() {
                           </button>
                           <button
                             onClick={() => {
-                              setDeleteItemId(item.id);
+                              setDeleteItemId(item.item_id);
                               setShowDeleteModal(true);
                             }}
                             className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-red-50 text-red-600 font-bold rounded-lg border border-red-200 hover:bg-red-100 transition-all text-xs whitespace-nowrap"
@@ -791,7 +977,7 @@ function MenuContent() {
               onClick={e => e.stopPropagation()}
             >
               <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
-                <h2 className="text-base md:text-lg font-bold text-gray-900">Customizations</h2>
+                <h2 className="text-base md:text-lg font-bold text-gray-900">Customizations & Addons</h2>
                 <button
                   onClick={() => setViewCustModal({ open: false, item: null })}
                   className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
@@ -806,14 +992,22 @@ function MenuContent() {
                   <div className="space-y-4">
                     {viewCustModal.item.customizations.map((group: any, idx: number) => (
                       <div key={idx} className="bg-gray-50 border border-gray-100 rounded-lg p-3">
-                        <div className="font-semibold text-gray-800 mb-1 text-sm">{group.name}</div>
-                        <ul className="list-disc pl-5 text-xs text-gray-700">
-                          {group.options.map((opt: any, i: number) => (
-                            <li key={i} className="flex items-center justify-between py-0.5">
-                              <span>{opt.name}</span>
-                              {opt.price && (
-                                <span className="ml-2 text-gray-500">₹{opt.price}</span>
-                              )}
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="font-semibold text-gray-800 text-sm">{group.title}</div>
+                          <div className="flex gap-2">
+                            {group.required && (
+                              <span className="px-2 py-0.5 bg-red-100 text-red-700 text-xs rounded">Required</span>
+                            )}
+                            <span className="px-2 py-0.5 bg-gray-200 text-gray-700 text-xs rounded">
+                              Max: {group.max_selection || 1}
+                            </span>
+                          </div>
+                        </div>
+                        <ul className="space-y-1">
+                          {group.addons.map((addon: any, i: number) => (
+                            <li key={i} className="flex items-center justify-between py-1 px-2 bg-white rounded border">
+                              <span className="text-sm text-gray-700">{addon.addon_name}</span>
+                              <span className="text-sm font-medium text-gray-900">₹{addon.addon_price}</span>
                             </li>
                           ))}
                         </ul>
@@ -865,8 +1059,8 @@ function MenuContent() {
                       type="text"
                       placeholder="Enter item name"
                       className="w-full px-3 py-1.5 border border-gray-200 rounded-md focus:border-orange-400 focus:ring-1 focus:ring-orange-100 text-sm text-gray-900"
-                      value={addForm.name}
-                      onChange={e => setAddForm(f => ({ ...f, name: e.target.value }))}
+                      value={addForm.item_name}
+                      onChange={e => setAddForm(f => ({ ...f, item_name: e.target.value }))}
                       required
                     />
                   </div>
@@ -888,8 +1082,8 @@ function MenuContent() {
                     <label className="text-xs font-semibold text-gray-700">Category Type *</label>
                     <select
                       className="w-full px-3 py-1.5 border border-gray-200 rounded-md focus:border-orange-400 focus:ring-1 focus:ring-orange-100 text-sm text-gray-900"
-                      value={addForm.category}
-                      onChange={e => setAddForm(f => ({ ...f, category: e.target.value }))}
+                      value={addForm.category_type}
+                      onChange={e => setAddForm(f => ({ ...f, category_type: e.target.value }))}
                       required
                     >
                       <option value="VEG">Veg</option>
@@ -900,17 +1094,17 @@ function MenuContent() {
                     </select>
                   </div>
                   
-                  {/* Category Item Dropdown */}
+                  {/* Food Category Item Dropdown */}
                   <div className="flex flex-col gap-2">
                     <label className="text-xs font-semibold text-gray-700">Food Item *</label>
                     <select
                       className="w-full px-3 py-1.5 border border-gray-200 rounded-md focus:border-orange-400 focus:ring-1 focus:ring-orange-100 text-sm text-gray-900"
-                      value={addForm.category_item}
+                      value={addForm.food_category_item}
                       onChange={e => {
                         const value = e.target.value;
                         setAddForm(f => ({ 
                           ...f, 
-                          category_item: value,
+                          food_category_item: value,
                           customCategory: value === 'other_custom' ? f.customCategory : '' 
                         }));
                       }}
@@ -924,7 +1118,7 @@ function MenuContent() {
                     </select>
                     
                     {/* Custom category input - Only show when "Other (Type your own)" is selected */}
-                    {addForm.category_item === 'other_custom' && (
+                    {addForm.food_category_item === 'other_custom' && (
                       <input
                         type="text"
                         placeholder="Enter custom food item name"
@@ -962,26 +1156,29 @@ function MenuContent() {
                     <input
                       type="number"
                       min="0"
+                      step="0.01"
                       placeholder="Enter actual price"
                       className="w-full px-3 py-1.5 border border-gray-200 rounded-md focus:border-orange-400 focus:ring-1 focus:ring-orange-100 text-sm text-gray-900"
-                      value={addForm.price}
-                      onChange={e => setAddForm(f => ({ ...f, price: e.target.value }))}
+                      value={addForm.actual_price}
+                      onChange={e => setAddForm(f => ({ ...f, actual_price: e.target.value }))}
                       required
                     />
                   </div>
                   
-                  {/* Offer Price */}
+                  {/* Offer Percent */}
                   <div className="flex flex-col gap-2">
-                    <label className="text-xs font-semibold text-gray-700">Offer Price (Optional)</label>
+                    <label className="text-xs font-semibold text-gray-700">Offer Percent (Optional)</label>
                     <input
                       type="number"
                       min="0"
-                      placeholder="Enter offer price"
+                      max="100"
+                      step="0.01"
+                      placeholder="Enter offer percent (e.g. 10 for 10% off)"
                       className="w-full px-3 py-1.5 border border-gray-200 rounded-md focus:border-orange-400 focus:ring-1 focus:ring-orange-100 text-sm text-gray-900"
-                      value={addForm.offerPrice}
-                      onChange={e => setAddForm(f => ({ ...f, offerPrice: e.target.value }))}
+                      value={addForm.offer_percent}
+                      onChange={e => setAddForm(f => ({ ...f, offer_percent: e.target.value }))}
                     />
-                    <span className="text-xs text-gray-400">Leave empty if no offer price</span>
+                    <span className="text-xs text-gray-400">Leave empty if no offer</span>
                   </div>
                   
                   {/* Stock Status */}
@@ -1010,7 +1207,7 @@ function MenuContent() {
                 
                 {/* Customizations Section */}
                 <div className="mt-4">
-                  <label className="block text-sm font-bold text-gray-800 mb-1">Customizations (Optional)</label>
+                  <label className="block text-sm font-bold text-gray-800 mb-1">Customizations & Addons (Optional)</label>
                   <div className="bg-gray-50 border border-gray-100 rounded-lg p-3">
                     <CustomizationEditor
                       customizations={addForm.customizations}
@@ -1030,14 +1227,14 @@ function MenuContent() {
                   </button>
                   <button
                     className={`px-7 py-1.5 rounded-md font-bold text-white transition-all text-sm ${
-                      isSaving || !addForm.name.trim() || !addForm.price.trim() || 
-                      (!addForm.category_item && !addForm.customCategory)
+                      isSaving || !addForm.item_name.trim() || !addForm.actual_price.trim() || 
+                      (!addForm.food_category_item && !addForm.customCategory)
                         ? 'bg-orange-200 cursor-not-allowed' : 'bg-orange-500 hover:bg-orange-600'
                     }`}
                     onClick={handleAddItem}
                     disabled={
-                      isSaving || !addForm.name.trim() || !addForm.price.trim() || 
-                      (!addForm.category_item && !addForm.customCategory)
+                      isSaving || !addForm.item_name.trim() || !addForm.actual_price.trim() || 
+                      (!addForm.food_category_item && !addForm.customCategory)
                     }
                     type="submit"
                   >
@@ -1078,8 +1275,8 @@ function MenuContent() {
                       type="text"
                       placeholder="Enter item name"
                       className="w-full px-3 py-1.5 border border-gray-200 rounded-md focus:border-orange-400 focus:ring-1 focus:ring-orange-100 text-sm text-gray-900"
-                      value={editForm.name}
-                      onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
+                      value={editForm.item_name}
+                      onChange={e => setEditForm(f => ({ ...f, item_name: e.target.value }))}
                       required
                     />
                   </div>
@@ -1101,8 +1298,8 @@ function MenuContent() {
                     <label className="text-xs font-semibold text-gray-700">Category Type *</label>
                     <select
                       className="w-full px-3 py-1.5 border border-gray-200 rounded-md focus:border-orange-400 focus:ring-1 focus:ring-orange-100 text-sm text-gray-900"
-                      value={editForm.category}
-                      onChange={e => setEditForm(f => ({ ...f, category: e.target.value }))}
+                      value={editForm.category_type}
+                      onChange={e => setEditForm(f => ({ ...f, category_type: e.target.value }))}
                       required
                     >
                       <option value="VEG">Veg</option>
@@ -1113,17 +1310,17 @@ function MenuContent() {
                     </select>
                   </div>
                   
-                  {/* Category Item Dropdown */}
+                  {/* Food Category Item Dropdown */}
                   <div className="flex flex-col gap-2">
                     <label className="text-xs font-semibold text-gray-700">Food Item *</label>
                     <select
                       className="w-full px-3 py-1.5 border border-gray-200 rounded-md focus:border-orange-400 focus:ring-1 focus:ring-orange-100 text-sm text-gray-900"
-                      value={editForm.category_item}
+                      value={editForm.food_category_item}
                       onChange={e => {
                         const value = e.target.value;
                         setEditForm(f => ({ 
                           ...f, 
-                          category_item: value,
+                          food_category_item: value,
                           customCategory: value === 'other_custom' ? f.customCategory : '' 
                         }));
                       }}
@@ -1137,7 +1334,7 @@ function MenuContent() {
                     </select>
                     
                     {/* Custom category input - Only show when "Other (Type your own)" is selected */}
-                    {editForm.category_item === 'other_custom' && (
+                    {editForm.food_category_item === 'other_custom' && (
                       <input
                         type="text"
                         placeholder="Enter custom food item name"
@@ -1175,26 +1372,29 @@ function MenuContent() {
                     <input
                       type="number"
                       min="0"
+                      step="0.01"
                       placeholder="Enter actual price"
                       className="w-full px-3 py-1.5 border border-gray-200 rounded-md focus:border-orange-400 focus:ring-1 focus:ring-orange-100 text-sm text-gray-900"
-                      value={editForm.price}
-                      onChange={e => setEditForm(f => ({ ...f, price: e.target.value }))}
+                      value={editForm.actual_price}
+                      onChange={e => setEditForm(f => ({ ...f, actual_price: e.target.value }))}
                       required
                     />
                   </div>
                   
-                  {/* Offer Price */}
+                  {/* Offer Percent */}
                   <div className="flex flex-col gap-2">
-                    <label className="text-xs font-semibold text-gray-700">Offer Price (Optional)</label>
+                    <label className="text-xs font-semibold text-gray-700">Offer Percent (Optional)</label>
                     <input
                       type="number"
                       min="0"
-                      placeholder="Enter offer price"
+                      max="100"
+                      step="0.01"
+                      placeholder="Enter offer percent (e.g. 10 for 10% off)"
                       className="w-full px-3 py-1.5 border border-gray-200 rounded-md focus:border-orange-400 focus:ring-1 focus:ring-orange-100 text-sm text-gray-900"
-                      value={editForm.offerPrice}
-                      onChange={e => setEditForm(f => ({ ...f, offerPrice: e.target.value }))}
+                      value={editForm.offer_percent}
+                      onChange={e => setEditForm(f => ({ ...f, offer_percent: e.target.value }))}
                     />
-                    <span className="text-xs text-gray-400">Leave empty if no offer price</span>
+                    <span className="text-xs text-gray-400">Leave empty if no offer</span>
                   </div>
                   
                   {/* Stock Status */}
@@ -1223,7 +1423,7 @@ function MenuContent() {
                 
                 {/* Customizations Section */}
                 <div className="mt-4">
-                  <label className="block text-sm font-bold text-gray-800 mb-1">Customizations (Optional)</label>
+                  <label className="block text-sm font-bold text-gray-800 mb-1">Customizations & Addons (Optional)</label>
                   <div className="bg-gray-50 border border-gray-100 rounded-lg p-3">
                     <CustomizationEditor
                       customizations={editForm.customizations || []}
@@ -1243,14 +1443,14 @@ function MenuContent() {
                   </button>
                   <button
                     className={`px-7 py-1.5 rounded-md font-bold text-white transition-all text-sm ${
-                      isSavingEdit || !editForm.name.trim() || !editForm.price.trim() || 
-                      (!editForm.category_item && !editForm.customCategory)
+                      isSavingEdit || !`${editForm.item_name || ''}`.trim() || !`${editForm.actual_price || ''}`.trim() || 
+                      (!`${editForm.food_category_item || ''}`.trim() && !`${editForm.customCategory || ''}`.trim())
                         ? 'bg-orange-200 cursor-not-allowed' : 'bg-orange-500 hover:bg-orange-600'
                     }`}
                     onClick={handleSaveEdit}
                     disabled={
-                      isSavingEdit || !editForm.name.trim() || !editForm.price.trim() || 
-                      (!editForm.category_item && !editForm.customCategory)
+                      isSavingEdit || !`${editForm.item_name || ''}`.trim() || !`${editForm.actual_price || ''}`.trim() || 
+                      (!`${editForm.food_category_item || ''}`.trim() && !`${editForm.customCategory || ''}`.trim())
                     }
                     type="submit"
                   >

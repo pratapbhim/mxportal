@@ -1,6 +1,6 @@
 
 import { NextRequest, NextResponse } from 'next/server';
-import { uploadToR2 } from '@/lib/r2';
+import { uploadToR2, getR2SignedUrl } from '@/lib/r2';
 
 
 export async function POST(req: NextRequest) {
@@ -18,17 +18,17 @@ export async function POST(req: NextRequest) {
     const key = `${parent}/${timestamp}_${safeName}`;
 
     // Use the S3-compatible upload
-    let url: string | null = null;
+    let objectKey: string | null = null;
     try {
-      url = await uploadToR2(file, key);
+      objectKey = await uploadToR2(file, key);
     } catch (err: any) {
       console.error('R2 upload error', err);
       return NextResponse.json({ error: 'upload_failed', details: err?.message || String(err) }, { status: 502 });
     }
 
-    // Construct public URL if needed (from env or key)
-    const publicBase = process.env.R2_PUBLIC_BASE_URL || '';
-    const publicUrl = publicBase ? `${publicBase}/${encodeURIComponent(key)}` : url;
+    // Construct the public URL for the uploaded image (R2 public bucket URL)
+    // Example: https://<account_id>.r2.cloudflarestorage.com/<bucket>/<key>
+    const publicUrl = `${process.env.R2_PUBLIC_BASE_URL}/${objectKey}`;
     return NextResponse.json({ url: publicUrl });
   } catch (err: any) {
     console.error('R2 upload error', err);
