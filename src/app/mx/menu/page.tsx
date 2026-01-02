@@ -5,7 +5,6 @@ import { Toaster, toast } from 'sonner'
 import { Plus, Edit2, Trash2, X, Upload, Package, ChevronDown, ChevronUp } from 'lucide-react'
 import { MXLayoutWhite } from '@/components/MXLayoutWhite'
 import { fetchStoreById, fetchStoreByName, fetchMenuItems, createMenuItem, updateMenuItem, updateMenuItemStock, deleteMenuItem, getImageUploadStatus } from '@/lib/database'
-import { MerchantStore } from '@/lib/types'
 
 export const dynamic = 'force-dynamic'
 
@@ -800,25 +799,24 @@ function MenuContent() {
 
   const processImageFile = (file: File, isEdit: boolean = false) => {
     const canAddImage = !imageUploadStatus || imageUploadStatus.totalUsed < 10;
-
     if (!canAddImage && !addForm.image_url) {
       toast.error('Image upload limit reached. Please upgrade your subscription.');
       return;
     }
 
+    // Show local preview immediately
     const reader = new FileReader();
     reader.onloadend = () => {
       const dataUrl = reader.result as string;
       if (isEdit) {
         setEditImagePreview(dataUrl);
-        setEditForm(prev => ({ ...prev, image_url: dataUrl }));
       } else {
         setImagePreview(dataUrl);
-        setAddForm(prev => ({ ...prev, image_url: dataUrl }));
       }
     };
     reader.readAsDataURL(file);
-    
+
+    // Save file for upload
     if (isEdit) {
       setEditForm(prev => ({ ...prev, image: file }));
     } else {
@@ -848,10 +846,38 @@ function MenuContent() {
     setIsSaving(true);
     try {
       let imageUrl = addForm.image_url;
+
       if (addForm.image) {
+        // First, create the menu item without the image to get the item_id
+        const offerPercentValue = addForm.offer_percent.trim() ? Number(addForm.offer_percent) : 0;
+        const customizations = addForm.customizations || [];
+        const newItem = {
+          item_name: addForm.item_name,
+          category_type: addForm.category_type,
+          food_category_item: finalFoodCategoryItem,
+          actual_price: Number(addForm.actual_price),
+          offer_percent: offerPercentValue,
+          description: addForm.description,
+          in_stock: addForm.in_stock,
+          image_url: null,
+          has_customization: hasCustomizations,
+          has_addons: hasAddons,
+          customizations,
+        };
+        const result = await createMenuItem({
+          restaurant_id: storeId || '',
+          ...newItem
+        });
+        if (!result || !result.item_id) {
+          setAddError('Failed to add item.');
+          setIsSaving(false);
+          return;
+        }
+        // Now upload the image with menu_item_id
         const formData = new FormData();
         formData.append('file', addForm.image);
-        formData.append('parent', storeId || 'unknown');
+        formData.append('parent', 'menuitems');
+        formData.append('menu_item_id', result.item_id);
         const uploadRes = await fetch('/api/upload/r2', {
           method: 'POST',
           body: formData,
@@ -863,6 +889,45 @@ function MenuContent() {
         }
         const uploadData = await uploadRes.json();
         imageUrl = uploadData.url;
+        setImagePreview(imageUrl);
+        // Update the menu item in state with the image_url
+        const newMenuItem: MenuItem = {
+          item_id: result.item_id,
+          store_id: storeId || '',
+          item_name: newItem.item_name,
+          category_type: newItem.category_type,
+          food_category_item: newItem.food_category_item,
+          actual_price: newItem.actual_price,
+          offer_percent: newItem.offer_percent,
+          offer_price: newItem.offer_percent ? Math.round(newItem.actual_price * (1 - newItem.offer_percent / 100)) : undefined,
+          image_url: imageUrl,
+          in_stock: newItem.in_stock,
+          description: newItem.description,
+          has_customization: newItem.has_customization,
+          has_addons: newItem.has_addons,
+          customizations: newItem.customizations,
+        };
+        setMenuItems(prev => [newMenuItem, ...prev]);
+        setShowAddModal(false);
+        setAddForm({ 
+          item_name: '', 
+          category_type: 'VEG', 
+          food_category_item: '', 
+          customCategory: '', 
+          actual_price: '', 
+          offer_percent: '', 
+          description: '', 
+          in_stock: true, 
+          image_url: '', 
+          image: null, 
+          has_customization: false,
+          has_addons: false,
+          customizations: [] 
+        });
+        setImagePreview('');
+        toast.success('Item added successfully!');
+        setIsSaving(false);
+        return;
       }
 
       const offerPercentValue = addForm.offer_percent.trim() ? Number(addForm.offer_percent) : 0;
@@ -989,7 +1054,8 @@ function MenuContent() {
       if (editForm.image) {
         const formData = new FormData();
         formData.append('file', editForm.image);
-        formData.append('parent', storeId || 'unknown');
+        formData.append('parent', 'menuitems');
+        formData.append('menu_item_id', editingId);
         const uploadRes = await fetch('/api/upload/r2', {
           method: 'POST',
           body: formData,
@@ -1001,6 +1067,7 @@ function MenuContent() {
         }
         const uploadData = await uploadRes.json();
         imageUrl = uploadData.url;
+        setEditImagePreview(imageUrl);
       }
 
       const offerPercentValue = offerPercent ? Number(offerPercent) : 0;
