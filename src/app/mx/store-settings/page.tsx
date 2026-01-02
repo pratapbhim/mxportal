@@ -3,153 +3,248 @@
 import React, { useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { MXLayoutWhite } from '@/components/MXLayoutWhite'
-import { fetchRestaurantById, fetchRestaurantByName } from '@/lib/database'
-import { Restaurant } from '@/lib/types'
-import { DEMO_RESTAURANT_ID } from '@/lib/constants'
-import {
-  Clock,
-  MapPin,
-  Phone,
-  ToggleRight,
-  Save,
-  AlertCircle,
-  CheckCircle2,
-  X,
-  Timer
-} from 'lucide-react'
+import { fetchRestaurantById as fetchStoreById, fetchRestaurantByName as fetchStoreByName } from '@/lib/database'
+import { MerchantStore } from '@/lib/merchantStore'
+import { DEMO_RESTAURANT_ID as DEMO_STORE_ID } from '@/lib/constants'
+import { Clock, Phone, Save, AlertCircle, CheckCircle2, X, Zap, Shield, BarChart3, Bell, Crown, Star, Check, MapPin, Settings, Calendar, Copy, Power, Plus, Trash2, ChevronDown, ChevronUp, Gift, Target, Globe, Users, Package, CreditCard, Sparkles } from 'lucide-react'
 import { Toaster, toast } from 'sonner'
 
 export const dynamic = 'force-dynamic'
 
-// Helper function to check if store is within operating hours
-const isWithinOperatingHours = (openTime: string, closeTime: string): boolean => {
-  const now = new Date()
-  const currentTime = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0')
-  
-  if (openTime < closeTime) {
-    return currentTime >= openTime && currentTime < closeTime
-  } else {
-    return currentTime >= openTime || currentTime < closeTime
-  }
+// Day types
+type DayType = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday'
+
+interface TimeSlot {
+  id: string
+  openingTime: string
+  closingTime: string
 }
 
-// Helper function to get minutes remaining
-const getMinutesRemaining = (until: Date): number => {
-  const now = new Date()
-  const diffMs = until.getTime() - now.getTime()
-  return Math.max(0, Math.floor(diffMs / (1000 * 60)))
-}
-
-// Helper function to get time until closing
-const getTimeUntilClosing = (closeTime: string): number => {
-  const now = new Date()
-  const [hours, mins] = closeTime.split(':').map(Number)
-  const closeDate = new Date()
-  closeDate.setHours(hours, mins, 0, 0)
-  
-  if (closeDate < now) {
-    closeDate.setDate(closeDate.getDate() + 1)
-  }
-  
-  const diffMs = closeDate.getTime() - now.getTime()
-  return Math.floor(diffMs / (1000 * 60))
+interface DaySchedule {
+  day: DayType
+  label: string
+  isOpen: boolean
+  slots: TimeSlot[]
+  is24Hours: boolean
+  isOutletClosed: boolean
+  duration: string
+  operationalHours: number
+  operationalMinutes: number
 }
 
 function StoreSettingsContent() {
   const searchParams = useSearchParams()
-  const [restaurant, setRestaurant] = useState<Restaurant | null>(null)
+  const [store, setStore] = useState<MerchantStore | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [restaurantId, setRestaurantId] = useState<string | null>(null)
+  const [storeId, setStoreId] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
+  const [activeTab, setActiveTab] = useState<'basic' | 'premium' | 'timings' | 'gatimitra'>(() => {
+    if (typeof window !== 'undefined') {
+      const urlTab = new URLSearchParams(window.location.search).get('tab')
+      if (urlTab === 'premium' || urlTab === 'timings' || urlTab === 'gatimitra') return urlTab as any
+    }
+    return 'basic'
+  })
+
+  // Sync tab with URL
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search)
+      if (activeTab !== (params.get('tab') || 'basic')) {
+        params.set('tab', activeTab)
+        const newUrl = `${window.location.pathname}?${params.toString()}`
+        window.history.replaceState({}, '', newUrl)
+      }
+    }
+  }, [activeTab])
+  const [showStoreTimingModal, setShowStoreTimingModal] = useState(false)
+  const [expandedDay, setExpandedDay] = useState<DayType | null>(null)
+  const [closedDay, setClosedDay] = useState<DayType | null>(null)
 
   // Form state
   const [isStoreOpen, setIsStoreOpen] = useState(true)
-  const [deliveryMode, setDeliveryMode] = useState<'MX_SELF' | 'GATIMITRA'>('MX_SELF')
+  const [tempOffDuration, setTempOffDuration] = useState<number | null>(null)
+  const [showTempOffModal, setShowTempOffModal] = useState(false)
+  const [tempOffDurationInput, setTempOffDurationInput] = useState('30')
+  const [mxDeliveryEnabled, setMxDeliveryEnabled] = useState(false)
   const [openingTime, setOpeningTime] = useState('09:00')
   const [closingTime, setClosingTime] = useState('23:00')
-  const [autoCloseTime, setAutoCloseTime] = useState('23:00')
+  const [autoCloseEnabled, setAutoCloseEnabled] = useState(false)
   const [phone, setPhone] = useState('')
   const [latitude, setLatitude] = useState('')
   const [longitude, setLongitude] = useState('')
-  const [autoCloseEnabled, setAutoCloseEnabled] = useState(false)
+  const [storeName, setStoreName] = useState('')
+  const [storeAddress, setStoreAddress] = useState('')
+  const [storeDescription, setStoreDescription] = useState('')
 
-  // Get restaurant ID
-  useEffect(() => {
-    const getRestaurantId = async () => {
-      let id = searchParams.get('restaurantId')
+  // Premium Benefits state
+  const [analyticsEnabled, setAnalyticsEnabled] = useState(false)
+  const [smartPricing, setSmartPricing] = useState(false)
+  const [prioritySupport, setPrioritySupport] = useState(false)
+  const [advancedSecurity, setAdvancedSecurity] = useState(false)
+  const [promoNotifications, setPromoNotifications] = useState(true)
+  const [marketingAutomation, setMarketingAutomation] = useState(false)
+  const [subscriptionPlan, setSubscriptionPlan] = useState<'free' | 'pro' | 'enterprise'>('pro')
 
-      if (!id) {
-        id = typeof window !== 'undefined' ? localStorage.getItem('selectedRestaurantId') : null
+  // Outlet timings state
+  const [applyMondayToAll, setApplyMondayToAll] = useState(false)
+
+  // Calculate total operational time for a day
+  const calculateOperationalTime = (slots: TimeSlot[]) => {
+    if (slots.length === 0) return { hours: 0, minutes: 0 }
+    
+    let totalMinutes = 0
+    slots.forEach(slot => {
+      const [openHour, openMinute] = slot.openingTime.split(':').map(Number)
+      const [closeHour, closeMinute] = slot.closingTime.split(':').map(Number)
+      
+      let openingMinutes = openHour * 60 + openMinute
+      let closingMinutes = closeHour * 60 + closeMinute
+      
+      // Handle next day closing (e.g., 1:00 AM)
+      if (closingMinutes < openingMinutes) {
+        closingMinutes += 24 * 60
       }
+      
+      totalMinutes += closingMinutes - openingMinutes
+    })
+    
+    const hours = Math.floor(totalMinutes / 60)
+    const minutes = totalMinutes % 60
+    
+    return { hours, minutes }
+  }
 
-      if (!id) {
-        id = DEMO_RESTAURANT_ID
-      }
-
-      setRestaurantId(id)
+  // Initial store schedule
+  const initialSchedule: DaySchedule[] = [
+    'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'
+  ].map(day => {
+    const slots = [{ id: '1', openingTime: '11:00', closingTime: '01:00' }]
+    const { hours, minutes } = calculateOperationalTime(slots)
+    
+    return {
+      day: day as DayType,
+      label: day.toUpperCase(),
+      isOpen: true,
+      slots,
+      is24Hours: false,
+      isOutletClosed: false,
+      duration: `${hours}.${minutes.toString().padStart(2, '0')} hrs`,
+      operationalHours: hours,
+      operationalMinutes: minutes
     }
+  })
 
-    getRestaurantId()
+  // Store timing schedule state
+  const [storeSchedule, setStoreSchedule] = useState<DaySchedule[]>(initialSchedule)
+
+  // Update duration when slots change
+  useEffect(() => {
+    const updateDurations = () => {
+      setStoreSchedule(prev => prev.map(day => {
+        if (day.is24Hours) {
+          return { ...day, duration: '24.0 hrs', operationalHours: 24, operationalMinutes: 0 }
+        }
+        if (day.isOutletClosed) {
+          return { ...day, duration: '0.0 hrs', operationalHours: 0, operationalMinutes: 0 }
+        }
+        
+        const { hours, minutes } = calculateOperationalTime(day.slots)
+        return {
+          ...day,
+          duration: `${hours}.${minutes.toString().padStart(2, '0')} hrs`,
+          operationalHours: hours,
+          operationalMinutes: minutes
+        }
+      }))
+    }
+    
+    updateDurations()
+  }, [])
+
+  // Get store ID
+  useEffect(() => {
+    const getStoreId = async () => {
+      let id = searchParams?.get('storeId') ?? null
+      if (!id) id = typeof window !== 'undefined' ? localStorage.getItem('selectedStoreId') : null
+      if (!id) id = DEMO_STORE_ID
+      setStoreId(id)
+    }
+    getStoreId()
   }, [searchParams])
 
-  // Load restaurant data
+  // Load store data
   useEffect(() => {
-    if (!restaurantId) return
+    if (!storeId) return
 
-    const loadRestaurant = async () => {
+    const loadStore = async () => {
       setIsLoading(true)
       try {
-        let restaurantData = await fetchRestaurantById(restaurantId)
-
-        if (!restaurantData && !restaurantId.match(/^GMM\d{4}$/)) {
-          restaurantData = await fetchRestaurantByName(restaurantId)
+        let storeData = await fetchStoreById(storeId)
+        if (!storeData && !storeId.match(/^GMM\d{4}$/)) {
+          storeData = await fetchStoreByName(storeId)
         }
-
-        if (restaurantData) {
-          setRestaurant(restaurantData)
+        if (storeData) {
+          setStore(storeData)
           setIsStoreOpen(true)
-          setPhone(restaurantData.phone || '')
-          setLatitude(restaurantData.latitude?.toString() || '')
-          setLongitude(restaurantData.longitude?.toString() || '')
+          setPhone(storeData.am_mobile || '')
+          setStoreName(storeData.store_name || '')
+          setStoreAddress(storeData.city || '')
+          setStoreDescription(storeData.description || '')
+          setLatitude('')
+          setLongitude('')
         }
       } catch (error) {
-        console.error('Error loading restaurant:', error)
+        console.error('Error loading store:', error)
       } finally {
         setIsLoading(false)
       }
     }
-
-    loadRestaurant()
-  }, [restaurantId])
+    loadStore()
+  }, [storeId])
 
   const handleStoreToggle = () => {
-    setIsStoreOpen(!isStoreOpen)
-    toast.success(
-      isStoreOpen
-        ? '🔴 Store is now CLOSED'
-        : '🟢 Store is now OPEN'
-    )
+    if (isStoreOpen) {
+      setShowTempOffModal(true)
+    } else {
+      setIsStoreOpen(true)
+      setTempOffDuration(null)
+      toast.success('🟢 Store is now OPEN')
+    }
   }
 
-  const handleDeliveryModeChange = (mode: 'MX_SELF' | 'GATIMITRA') => {
-    if (deliveryMode === mode) return
-    
-    setDeliveryMode(mode)
-    const modeName = mode === 'MX_SELF' ? 'MX Self Delivery' : 'GatiMitra Delivery'
-    toast.success(`✅ Delivery mode set to ${modeName}`)
+  const handleTempOff = () => {
+    const duration = parseInt(tempOffDurationInput)
+    if (duration <= 0) {
+      toast.error('⚠️ Please enter a valid duration')
+      return
+    }
+    setIsStoreOpen(false)
+    setTempOffDuration(duration)
+    toast.success(`⏱️ Store closed temporarily for ${duration} minutes`)
+    setShowTempOffModal(false)
+    setTempOffDurationInput('30')
+  }
+
+  const handleMXDeliveryToggle = () => {
+    const newValue = !mxDeliveryEnabled
+    setMxDeliveryEnabled(newValue)
+    if (newValue) {
+      toast.success('✅ MX Self Delivery enabled - GatiMitra delivery disabled')
+    } else {
+      toast.success('✅ GatiMitra Delivery will handle all deliveries')
+    }
   }
 
   const handleSaveSettings = async () => {
     if (!phone || !latitude || !longitude) {
-      toast.error('❌ Please fill in all required fields')
+      toast.error('⚠️ Please fill in all required fields')
       return
     }
 
     setIsSaving(true)
     try {
-      // Simulate API call
       await new Promise(resolve => setTimeout(resolve, 800))
-      
       toast.success('✅ Settings saved successfully!')
     } catch (error) {
       toast.error('❌ Failed to save settings')
@@ -158,34 +253,273 @@ function StoreSettingsContent() {
     }
   }
 
+  const handlePremiumFeatureToggle = (feature: string, value: boolean) => {
+    if (subscriptionPlan === 'free') {
+      toast.error('💎 Upgrade to Pro plan to access this feature')
+      return false
+    }
+    toast.success(`✅ ${feature} ${value ? 'enabled' : 'disabled'}`)
+    return true
+  }
+
+  const handleUpgradePlan = (plan: 'pro' | 'enterprise') => {
+    setSubscriptionPlan(plan)
+    if (plan === 'pro') {
+      setAnalyticsEnabled(true)
+      setSmartPricing(true)
+      setPrioritySupport(true)
+    } else {
+      setAnalyticsEnabled(true)
+      setSmartPricing(true)
+      setPrioritySupport(true)
+      setAdvancedSecurity(true)
+      setMarketingAutomation(true)
+    }
+    toast.success(`🎉 Upgraded to ${plan === 'pro' ? 'Pro' : 'Enterprise'} plan!`)
+  }
+
+  // Store timing functions
+  const toggleDayExpansion = (day: DayType) => {
+    setExpandedDay(expandedDay === day ? null : day)
+  }
+
+  const handleDayToggle = (day: DayType) => {
+    setStoreSchedule(prev => prev.map(d => {
+      if (d.day === day) {
+        const newIsOpen = !d.isOpen
+        const newSlots = newIsOpen && !d.is24Hours && !d.isOutletClosed ? 
+          [{ id: Date.now().toString(), openingTime: '11:00', closingTime: '01:00' }] : []
+        const { hours, minutes } = calculateOperationalTime(newSlots)
+        
+        return {
+          ...d,
+          isOpen: newIsOpen,
+          slots: newSlots,
+          duration: `${hours}.${minutes.toString().padStart(2, '0')} hrs`,
+          operationalHours: hours,
+          operationalMinutes: minutes
+        }
+      }
+      return d
+    }))
+    toast.success(`${day.charAt(0).toUpperCase() + day.slice(1)} ${storeSchedule.find(d => d.day === day)?.isOpen ? 'closed' : 'opened'}`)
+  }
+
+  const handle24HoursToggle = (day: DayType) => {
+    setStoreSchedule(prev => prev.map(d => {
+      if (d.day === day) {
+        const new24Hours = !d.is24Hours
+        
+        return {
+          ...d,
+          is24Hours: new24Hours,
+          isOutletClosed: false,
+          slots: [],
+          duration: new24Hours ? '24.0 hrs' : '14.0 hrs',
+          operationalHours: new24Hours ? 24 : 14,
+          operationalMinutes: 0
+        }
+      }
+      return d
+    }))
+    toast.success(`24 Hours ${storeSchedule.find(d => d.day === day)?.is24Hours ? 'disabled' : 'enabled'} for ${day}`)
+  }
+
+  const handleOutletClosedToggle = (day: DayType) => {
+    const daySchedule = storeSchedule.find(d => d.day === day)
+    if (!daySchedule) return
+    
+    const newOutletClosed = !daySchedule.isOutletClosed
+    
+    setStoreSchedule(prev => prev.map(d => {
+      if (d.day === day) {
+        return {
+          ...d,
+          isOutletClosed: newOutletClosed,
+          is24Hours: false,
+          slots: [],
+          duration: '0.0 hrs',
+          operationalHours: 0,
+          operationalMinutes: 0
+        }
+      }
+      return d
+    }))
+    
+    if (newOutletClosed) {
+      setClosedDay(day)
+    } else if (closedDay === day) {
+      setClosedDay(null)
+    }
+    
+    toast.success(`Outlet ${newOutletClosed ? 'closed' : 'opened'} on ${day}`)
+  }
+
+  const addTimeSlot = (day: DayType) => {
+    const daySchedule = storeSchedule.find(d => d.day === day)
+    if (!daySchedule || daySchedule.slots.length >= 2) {
+      toast.error('Maximum 2 slots allowed per day')
+      return
+    }
+    
+    const newSlot: TimeSlot = {
+      id: Date.now().toString(),
+      openingTime: '14:00',
+      closingTime: '18:00'
+    }
+    
+    setStoreSchedule(prev => prev.map(d => {
+      if (d.day === day) {
+        const newSlots = [...d.slots, newSlot]
+        const { hours, minutes } = calculateOperationalTime(newSlots)
+        
+        return {
+          ...d,
+          slots: newSlots,
+          duration: `${hours}.${minutes.toString().padStart(2, '0')} hrs`,
+          operationalHours: hours,
+          operationalMinutes: minutes
+        }
+      }
+      return d
+    }))
+    toast.success('New time slot added')
+  }
+
+  const removeTimeSlot = (day: DayType, slotId: string) => {
+    const daySchedule = storeSchedule.find(d => d.day === day)
+    if (daySchedule?.slots.length === 1) {
+      toast.error('At least one time slot is required')
+      return
+    }
+    
+    setStoreSchedule(prev => prev.map(d => {
+      if (d.day === day) {
+        const newSlots = d.slots.filter(s => s.id !== slotId)
+        const { hours, minutes } = calculateOperationalTime(newSlots)
+        
+        return {
+          ...d,
+          slots: newSlots,
+          duration: `${hours}.${minutes.toString().padStart(2, '0')} hrs`,
+          operationalHours: hours,
+          operationalMinutes: minutes
+        }
+      }
+      return d
+    }))
+    toast.success('Time slot removed')
+  }
+
+  const updateTimeSlot = (day: DayType, slotId: string, field: 'openingTime' | 'closingTime', value: string) => {
+    setStoreSchedule(prev => prev.map(d => {
+      if (d.day === day) {
+        const newSlots = d.slots.map(slot => 
+          slot.id === slotId ? { ...slot, [field]: value } : slot
+        )
+        const { hours, minutes } = calculateOperationalTime(newSlots)
+        
+        return {
+          ...d,
+          slots: newSlots,
+          duration: `${hours}.${minutes.toString().padStart(2, '0')} hrs`,
+          operationalHours: hours,
+          operationalMinutes: minutes
+        }
+      }
+      return d
+    }))
+  }
+
+  const copyToAllDays = () => {
+    const mondaySchedule = storeSchedule.find(d => d.day === 'monday')
+    if (mondaySchedule) {
+      setStoreSchedule(prev => prev.map(day => ({
+        ...mondaySchedule,
+        day: day.day,
+        label: day.label
+      })))
+      toast.success('Timings copied to all days')
+    }
+  }
+
+  const saveStoreTimings = () => {
+    toast.success('✅ Store timings saved successfully!')
+  }
+
+  const formatTimeForDisplay = (time: string) => {
+    const [hours, minutes] = time.split(':').map(Number)
+    const period = hours >= 12 ? 'PM' : 'AM'
+    const displayHours = hours % 12 || 12
+    return `${displayHours}:${minutes.toString().padStart(2, '0')} ${period}`
+  }
+
+  const handleClosedDayChange = (day: DayType) => {
+    // First, open all days
+    const updatedSchedule = storeSchedule.map(d => ({
+      ...d,
+      isOutletClosed: false
+    }))
+    
+    // Then close the selected day if not empty
+    const finalSchedule = updatedSchedule.map(d => 
+      d.day === day ? { 
+        ...d, 
+        isOutletClosed: true,
+        is24Hours: false,
+        slots: [],
+        duration: '0.0 hrs',
+        operationalHours: 0,
+        operationalMinutes: 0
+      } : d
+    )
+    
+    setStoreSchedule(finalSchedule)
+    setClosedDay(day)
+    toast.success(`Outlet closed on ${day.toUpperCase()}`)
+  }
+
+  const toggle24HoursForAll = () => {
+    const all24Hours = storeSchedule.every(d => d.is24Hours)
+    setStoreSchedule(prev => prev.map(d => ({
+      ...d,
+      is24Hours: !all24Hours,
+      isOutletClosed: false,
+      slots: [],
+      duration: !all24Hours ? '24.0 hrs' : '14.0 hrs',
+      operationalHours: !all24Hours ? 24 : 14,
+      operationalMinutes: 0
+    })))
+    setClosedDay(null)
+    toast.success(!all24Hours ? '24 hours enabled for all days' : '24 hours disabled for all days')
+  }
+
+  const handleViewStore = () => {
+    window.open('https://gatimitra.com', '_blank', 'noopener,noreferrer')
+  }
+
   if (isLoading) {
     return (
-      <MXLayoutWhite restaurantName={restaurant?.restaurant_name} restaurantId={restaurantId || ''}>
-        <div className="min-h-screen bg-gray-50 p-6">
-          <div className="max-w-4xl mx-auto space-y-6">
+      <MXLayoutWhite restaurantName={store?.store_name} restaurantId={storeId || ''}>
+        <div className="min-h-screen bg-gray-50 px-4 sm:px-6 lg:px-8 py-8">
+          <div className="max-w-7xl mx-auto">
             {/* Header Skeleton */}
-            <div className="space-y-2">
-              <div className="h-8 bg-gray-200 rounded w-1/3 animate-pulse"></div>
+            <div className="space-y-1 mb-6">
+              <div className="h-10 bg-gray-200 rounded w-1/3 animate-pulse"></div>
               <div className="h-4 bg-gray-100 rounded w-1/2 animate-pulse"></div>
             </div>
-
-            {/* Form Sections Skeleton */}
-            {[1, 2, 3].map((section) => (
-              <div key={section} className="bg-white rounded-lg border border-gray-200 p-6 space-y-4">
-                <div className="h-6 bg-gray-200 rounded w-1/4 animate-pulse"></div>
-                <div className="space-y-4">
-                  {[1, 2, 3].map((field) => (
-                    <div key={field} className="space-y-2">
-                      <div className="h-4 bg-gray-200 rounded w-1/3 animate-pulse"></div>
-                      <div className="h-10 bg-gray-100 rounded animate-pulse"></div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-
-            {/* Submit Button Skeleton */}
-            <div className="h-10 bg-blue-200 rounded-lg w-40 animate-pulse"></div>
+            {/* Tabs Skeleton */}
+            <div className="flex border-b border-gray-200 mb-8 gap-4">
+              {[1,2,3].map((i) => (
+                <div key={i} className="h-10 w-32 bg-gray-200 rounded-t animate-pulse"></div>
+              ))}
+            </div>
+            {/* Content Skeleton */}
+            <div className="space-y-6">
+              <div className="h-24 bg-gray-100 rounded-lg animate-pulse"></div>
+              <div className="h-40 bg-gray-100 rounded-lg animate-pulse"></div>
+              <div className="h-16 bg-gray-100 rounded-lg animate-pulse"></div>
+            </div>
           </div>
         </div>
       </MXLayoutWhite>
@@ -195,262 +529,1015 @@ function StoreSettingsContent() {
   return (
     <>
       <Toaster />
-      <MXLayoutWhite
-        restaurantName={restaurant?.restaurant_name || 'Settings'}
-        restaurantId={restaurantId || DEMO_RESTAURANT_ID}
-      >
-        <div className="min-h-screen bg-white px-4 sm:px-6 lg:px-8 py-8">
-          <div className="max-w-3xl mx-auto space-y-6">
-            {/* Header */}
-            <div className="space-y-1">
-              <h1 className="text-3xl font-bold text-gray-900">Store Settings</h1>
-              <p className="text-sm text-gray-600">Configure your store details and delivery modes</p>
+      <MXLayoutWhite restaurantName={store?.store_name} restaurantId={storeId || DEMO_STORE_ID}>
+        <div className="min-h-screen bg-gray-50 px-4 sm:px-6 lg:px-8 py-8">
+          <div className="max-w-7xl mx-auto">
+            {/* Header with Tabs */}
+            <div className="mb-8">
+              <div className="space-y-1 mb-6">
+                <h1 className="text-3xl font-bold text-gray-900">Store Settings</h1>
+                <p className="text-sm text-gray-600">Manage your store and delivery configuration</p>
+              </div>
+              
+              {/* Tabs */}
+              <div className="flex border-b border-gray-200">
+                <button
+                  onClick={() => setActiveTab('basic')}
+                  className={`px-6 py-3 font-semibold text-sm border-b-2 transition-colors flex items-center gap-2 ${
+                    activeTab === 'basic'
+                      ? 'border-orange-600 text-orange-700'
+                      : 'border-transparent text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  <Settings size={16} />
+                  Basic Settings
+                </button>
+                <button
+                  onClick={() => setActiveTab('premium')}
+                  className={`px-6 py-3 font-semibold text-sm border-b-2 transition-colors flex items-center gap-2 ${
+                    activeTab === 'premium'
+                      ? 'border-orange-600 text-orange-700'
+                      : 'border-transparent text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  <Crown size={16} />
+                  Premium Benefits
+                </button>
+                <button
+                  onClick={() => setActiveTab('timings')}
+                  className={`px-6 py-3 font-semibold text-sm border-b-2 transition-colors flex items-center gap-2 ${
+                    activeTab === 'timings'
+                      ? 'border-orange-600 text-orange-700'
+                      : 'border-transparent text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  <Clock size={16} />
+                  Outlet Timings
+                </button>
+                <button
+                  onClick={() => setActiveTab('gatimitra')}
+                  className={`px-6 py-3 font-semibold text-sm border-b-2 transition-colors flex items-center gap-2 ${
+                    activeTab === 'gatimitra'
+                      ? 'border-orange-600 text-orange-700'
+                      : 'border-transparent text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  <img src="/gstore.png" alt="Store" className="w-5 h-5" />
+                  Store on Gatimitra
+                </button>
+              </div>
             </div>
 
-            {/* Store Status Section */}
-            <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="p-2 rounded-lg bg-emerald-50">
-                  <ToggleRight size={18} className="text-emerald-600" />
-                </div>
-                <h3 className="text-lg font-bold text-gray-900">Store Status</h3>
-              </div>
+            {activeTab === 'basic' && (
+              <div className="space-y-6">
+                {/* Store Status Card */}
+                <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+                  <div className="flex items-start gap-4">
+                    <div className="p-3 rounded-lg bg-emerald-50">
+                      <Power size={20} className="text-emerald-600" />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-lg font-bold text-gray-900 mb-4">Store Status</h3>
+                      
+                      <div className="flex items-center justify-between mb-6">
+                        <div>
+                          <p className="font-medium text-gray-900">Store Availability</p>
+                          <p className="text-sm text-gray-600">Enable or disable store for customers</p>
+                        </div>
+                        <button
+                          onClick={handleStoreToggle}
+                          className={`px-6 py-2.5 rounded-lg font-semibold transition-all flex items-center gap-2 ${
+                            isStoreOpen
+                              ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                              : 'bg-red-100 text-red-700 hover:bg-red-200'
+                          }`}
+                        >
+                          {isStoreOpen ? (
+                            <>
+                              <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
+                              OPEN
+                            </>
+                          ) : (
+                            <>
+                              <div className="w-2 h-2 rounded-full bg-red-500"></div>
+                              CLOSED
+                            </>
+                          )}
+                        </button>
+                      </div>
 
-              <div className="space-y-4">
-                <div className="flex items-center justify-between p-4 rounded-lg bg-gray-50 border border-gray-200">
-                  <div>
-                    <p className="font-medium text-gray-900">Store Operation</p>
-                    <p className="text-sm text-gray-600">Enable or disable store for customers</p>
+                      <div className="bg-gray-50 p-4 rounded-lg">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="font-medium text-gray-900">Auto-close Store Daily</p>
+                            <p className="text-sm text-gray-600">Automatically close at closing time</p>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={autoCloseEnabled}
+                              onChange={(e) => setAutoCloseEnabled(e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-600"></div>
+                          </label>
+                        </div>
+                      </div>
+
+                      {!isStoreOpen && tempOffDuration && (
+                        <div className="mt-4 p-4 rounded-lg bg-orange-50 border border-orange-200">
+                          <div className="flex items-start gap-3">
+                            <AlertCircle size={18} className="text-orange-600 flex-shrink-0 mt-0.5" />
+                            <div>
+                              <p className="font-semibold text-orange-700">Temporarily Closed</p>
+                              <p className="text-orange-600 text-sm">Will reopen in {tempOffDuration} minutes</p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
+                </div>
+
+                {/* Store Information Card */}
+                <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+                  <div className="flex items-start gap-4">
+                    <div className="p-3 rounded-lg bg-blue-50">
+                      <MapPin size={20} className="text-blue-600" />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-lg font-bold text-gray-900 mb-6">Store Information</h3>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                          <label className="block text-sm font-semibold text-gray-900 mb-2">Store Name *</label>
+                          <input
+                            type="text"
+                            value={storeName}
+                            onChange={(e) => setStoreName(e.target.value)}
+                            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            placeholder="Enter store name"
+                          />
+                        </div>
+                        
+                        <div>
+                          <label className="block text-sm font-semibold text-gray-900 mb-2">Phone Number *</label>
+                          <div className="flex items-center gap-2">
+                            <Phone size={16} className="text-gray-400" />
+                            <input
+                              type="tel"
+                              value={phone}
+                              onChange={(e) => setPhone(e.target.value)}
+                              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                              placeholder="Enter phone number"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-semibold text-gray-900 mb-2">Address</label>
+                          <input
+                            type="text"
+                            value={storeAddress}
+                            onChange={(e) => setStoreAddress(e.target.value)}
+                            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            placeholder="Enter store address"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-semibold text-gray-900 mb-2">Description</label>
+                          <textarea
+                            value={storeDescription}
+                            onChange={(e) => setStoreDescription(e.target.value)}
+                            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            placeholder="Enter store description"
+                            rows={3}
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-semibold text-gray-900 mb-2">Latitude *</label>
+                          <input
+                            type="text"
+                            value={latitude}
+                            onChange={(e) => setLatitude(e.target.value)}
+                            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            placeholder="Enter latitude"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-semibold text-gray-900 mb-2">Longitude *</label>
+                          <input
+                            type="text"
+                            value={longitude}
+                            onChange={(e) => setLongitude(e.target.value)}
+                            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            placeholder="Enter longitude"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Delivery Configuration Card */}
+                <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+                  <div className="flex items-start gap-4">
+                    <div className="p-3 rounded-lg bg-orange-50">
+                      <Package size={20} className="text-orange-600" />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-lg font-bold text-gray-900 mb-4">Delivery Configuration</h3>
+                      
+                      <div className="space-y-4">
+                        <div className={`p-4 rounded-lg border-2 transition-colors ${
+                          mxDeliveryEnabled 
+                            ? 'border-orange-300 bg-orange-50' 
+                            : 'border-gray-200 hover:border-gray-300'
+                        }`}>
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <div className="flex items-center gap-2 mb-1">
+                                <Zap size={16} className="text-orange-600" />
+                                <p className="font-semibold text-gray-900">MX Self Delivery</p>
+                              </div>
+                              <p className="text-sm text-gray-600">Use your own delivery staff</p>
+                            </div>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={mxDeliveryEnabled}
+                                onChange={handleMXDeliveryToggle}
+                                className="sr-only peer"
+                              />
+                              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-600"></div>
+                            </label>
+                          </div>
+                        </div>
+
+                        <div className={`p-4 rounded-lg border-2 transition-colors ${
+                          !mxDeliveryEnabled 
+                            ? 'border-purple-300 bg-purple-50' 
+                            : 'border-gray-200 hover:border-gray-300'
+                        }`}>
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <div className="flex items-center gap-2 mb-1">
+                                <Users size={16} className="text-purple-600" />
+                                <p className="font-semibold text-gray-900">GatiMitra Delivery</p>
+                              </div>
+                              <p className="text-sm text-gray-600">Partner with external delivery service</p>
+                            </div>
+                            <div className={`px-3 py-1 rounded-full text-sm font-medium ${
+                              !mxDeliveryEnabled 
+                                ? 'bg-purple-600 text-white' 
+                                : 'bg-gray-100 text-gray-600'
+                            }`}>
+                              {!mxDeliveryEnabled ? 'Active' : 'Inactive'}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Save Button */}
+                <div className="sticky bottom-4 bg-white rounded-xl border border-gray-200 p-4 shadow-lg">
                   <button
-                    onClick={handleStoreToggle}
-                    className={`px-4 py-2 rounded-lg font-medium transition-all ${
-                      isStoreOpen
-                        ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
-                        : 'bg-red-100 text-red-700 hover:bg-red-200'
-                    }`}
+                    onClick={handleSaveSettings}
+                    disabled={isSaving}
+                    className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-orange-600 to-orange-500 text-white rounded-lg hover:from-orange-700 hover:to-orange-600 transition-all font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {isStoreOpen ? '🟢 OPEN' : '🔴 CLOSED'}
+                    <Save size={18} />
+                    {isSaving ? 'Saving Settings...' : 'Save All Settings'}
                   </button>
                 </div>
-
-                {/* Auto-close Checkbox */}
-                <label className="flex items-center gap-3 p-4 rounded-lg bg-white border border-gray-200 cursor-pointer hover:bg-gray-50 transition-colors">
-                  <input type="checkbox" className="w-4 h-4" defaultChecked={false} />
-                  <div className="flex-1">
-                    <p className="font-medium text-gray-900 text-sm">Auto-close at specific time</p>
-                    <p className="text-xs text-gray-600">Automatically close store at selected time</p>
-                  </div>
-                </label>
               </div>
-            </div>
+            )}
 
-            {/* Operating Hours Section */}
-            <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="p-2 rounded-lg bg-blue-50">
-                  <Clock size={18} className="text-blue-600" />
-                </div>
-                <h3 className="text-lg font-bold text-gray-900">Operating Hours</h3>
-              </div>
-
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-900 mb-2">Opening Time</label>
-                    <input
-                      type="time"
-                      value={openingTime}
-                      onChange={(e) => setOpeningTime(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-900 mb-2">Closing Time</label>
-                    <input
-                      type="time"
-                      value={closingTime}
-                      onChange={(e) => setClosingTime(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-900 mb-2">Auto-close Time (Optional)</label>
-                  <input
-                    type="time"
-                    value={autoCloseTime}
-                    onChange={(e) => setAutoCloseTime(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
-                  />
-                  <p className="text-xs text-gray-600 mt-1">Store will automatically close at this time if enabled</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Store Information Section */}
-            <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="p-2 rounded-lg bg-purple-50">
-                  <Phone size={18} className="text-purple-600" />
-                </div>
-                <h3 className="text-lg font-bold text-gray-900">Store Information</h3>
-              </div>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-900 mb-2">Phone Number *</label>
-                  <input
-                    type="tel"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="10-digit phone number"
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-900 mb-2">Address</label>
-                  <input
-                    type="text"
-                    value={restaurant?.address || ''}
-                    disabled
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-600"
-                  />
-                  <p className="text-xs text-gray-600 mt-1">Read-only - set during registration</p>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-900 mb-2">Latitude *</label>
-                    <input
-                      type="number"
-                      step="0.0001"
-                      value={latitude}
-                      onChange={(e) => setLatitude(e.target.value)}
-                      placeholder="e.g., 28.6139"
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-900 mb-2">Longitude *</label>
-                    <input
-                      type="number"
-                      step="0.0001"
-                      value={longitude}
-                      onChange={(e) => setLongitude(e.target.value)}
-                      placeholder="e.g., 77.2090"
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
-                      required
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Delivery Mode Section */}
-            <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="p-2 rounded-lg bg-orange-50">
-                  <ToggleRight size={18} className="text-orange-600" />
-                </div>
-                <h3 className="text-lg font-bold text-gray-900">Delivery Mode</h3>
-              </div>
-
-              <p className="text-sm text-gray-600 mb-4">Select your primary delivery method (mutually exclusive)</p>
-
-              <div className="space-y-3">
-                {/* MX Self Delivery */}
-                <button
-                  onClick={() => handleDeliveryModeChange('MX_SELF')}
-                  className={`w-full p-4 rounded-lg border-2 transition-all text-left ${
-                    deliveryMode === 'MX_SELF'
-                      ? 'border-orange-500 bg-orange-50'
-                      : 'border-gray-200 bg-white hover:bg-gray-50'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
+            {activeTab === 'premium' && (
+              <div className="space-y-8">
+                {/* Subscription Plans */}
+                <div className="bg-gradient-to-br from-white to-gray-50 border-2 border-gray-200 rounded-2xl p-6 mb-0" style={{ marginBottom: '0', paddingBottom: '0.1875rem' }}>
+                  <div className="flex items-start justify-between mb-8">
                     <div>
-                      <p className={`font-semibold ${deliveryMode === 'MX_SELF' ? 'text-orange-700' : 'text-gray-900'}`}>
-                        🚶 MX Self Delivery
-                      </p>
-                      <p className="text-xs text-gray-600">Customers pick up orders from store</p>
+                      <div className="flex items-center gap-3 mb-2">
+                        <Crown className="text-amber-600" size={24} />
+                        <h2 className="text-2xl font-bold text-gray-900">Premium Benefits</h2>
+                      </div>
+                      <p className="text-gray-600">Unlock powerful Benefits to grow your business</p>
                     </div>
-                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
-                      deliveryMode === 'MX_SELF' ? 'border-orange-500 bg-orange-500' : 'border-gray-300'
-                    }`}>
-                      {deliveryMode === 'MX_SELF' && <div className="w-2 h-2 bg-white rounded-full" />}
-                    </div>
-                  </div>
-                </button>
-
-                {/* GatiMitra Delivery */}
-                <button
-                  onClick={() => handleDeliveryModeChange('GATIMITRA')}
-                  className={`w-full p-4 rounded-lg border-2 transition-all text-left ${
-                    deliveryMode === 'GATIMITRA'
-                      ? 'border-purple-500 bg-purple-50'
-                      : 'border-gray-200 bg-white hover:bg-gray-50'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className={`font-semibold ${deliveryMode === 'GATIMITRA' ? 'text-purple-700' : 'text-gray-900'}`}>
-                        🚗 GatiMitra Delivery
-                      </p>
-                      <p className="text-xs text-gray-600">Auto-assign delivery partners</p>
-                    </div>
-                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
-                      deliveryMode === 'GATIMITRA' ? 'border-purple-500 bg-purple-500' : 'border-gray-300'
-                    }`}>
-                      {deliveryMode === 'GATIMITRA' && <div className="w-2 h-2 bg-white rounded-full" />}
+                    <div className="bg-gradient-to-r from-orange-100 to-amber-100 px-4 py-2 rounded-full border border-orange-300">
+                      <span className="text-orange-700 font-bold text-sm flex items-center gap-2">
+                        <Star size={14} className="fill-orange-700" />
+                        Current: {subscriptionPlan.charAt(0).toUpperCase() + subscriptionPlan.slice(1)} Plan
+                      </span>
                     </div>
                   </div>
-                </button>
-              </div>
 
-              <div className="mt-4 p-3 rounded-lg bg-blue-50 border border-blue-200 flex items-start gap-2">
-                <AlertCircle size={16} className="text-blue-600 flex-shrink-0 mt-0.5" />
-                <div className="text-xs text-blue-700">
-                  <p className="font-semibold">Only one delivery mode can be active</p>
-                  <p>Switching modes will automatically disable the previous one</p>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {/* Free Plan */}
+                    <div className={`bg-white rounded-xl px-3 py-2 md:px-4 md:py-3 border-2 max-w-[270px] mx-auto ${
+                      subscriptionPlan === 'free' ? 'border-orange-500 shadow-lg' : 'border-gray-200 hover:border-gray-300'
+                    } transition-all`}>
+                      <div className="text-center mb-6">
+                        <h3 className="text-xl font-bold text-gray-900 mb-2">Free</h3>
+                        <div className="text-3xl font-bold text-gray-900 mb-1">₹0<span className="text-sm text-gray-500 font-normal">/month</span></div>
+                        <p className="text-sm text-gray-600">Perfect for getting started</p>
+                      </div>
+                      
+                      <div className="space-y-3 mb-6">
+                        <div className="flex items-center gap-3">
+                          <Check size={16} className="text-green-500 flex-shrink-0" />
+                          <span className="text-sm text-gray-700">Basic Store Management</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <Check size={16} className="text-green-500 flex-shrink-0" />
+                          <span className="text-sm text-gray-700">Standard Delivery Integration</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <Check size={16} className="text-green-500 flex-shrink-0" />
+                          <span className="text-sm text-gray-700">Email Support</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <X size={16} className="text-gray-400 flex-shrink-0" />
+                          <span className="text-sm text-gray-400">Advanced Analytics</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <X size={16} className="text-gray-400 flex-shrink-0" />
+                          <span className="text-sm text-gray-400">Priority Support</span>
+                        </div>
+                      </div>
+                      
+                      <button
+                        disabled={subscriptionPlan === 'free'}
+                        onClick={() => setSubscriptionPlan('free')}
+                        className={`w-full py-3 rounded-lg font-semibold transition-all ${
+                          subscriptionPlan === 'free'
+                            ? 'bg-gray-100 text-gray-700 cursor-default'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        }`}
+                      >
+                        {subscriptionPlan === 'free' ? 'Current Plan' : 'Select Free Plan'}
+                      </button>
+                    </div>
+
+                    {/* Pro Plan */}
+                    <div className={`bg-gradient-to-b from-orange-50 to-white rounded-xl px-3 py-2 md:px-4 md:py-3 border-2 max-w-[270px] mx-auto relative ${
+                      subscriptionPlan === 'pro' ? 'border-orange-500 shadow-xl' : 'border-orange-300 hover:border-orange-400'
+                    } transition-all`}>
+                      {subscriptionPlan === 'pro' && (
+                        <div className="absolute -top-3 left-1/2 transform -translate-x-1/2">
+                          <div className="bg-gradient-to-r from-orange-600 to-amber-600 text-white px-4 py-1.5 rounded-full text-xs font-semibold shadow-md">
+                            RECOMMENDED
+                          </div>
+                        </div>
+                      )}
+                      
+                      <div className="text-center mb-6">
+                        <div className="flex items-center justify-center gap-2 mb-2">
+                          <Star size={16} className="text-amber-600 fill-amber-600" />
+                          <h3 className="text-xl font-bold text-gray-900">Pro</h3>
+                        </div>
+                        <div className="text-3xl font-bold text-gray-900 mb-1">₹999<span className="text-sm text-gray-500 font-normal">/month</span></div>
+                        <p className="text-sm text-gray-600">For growing businesses</p>
+                      </div>
+                      
+                      <div className="space-y-3 mb-6">
+                        <div className="flex items-center gap-3">
+                          <Check size={16} className="text-green-500 flex-shrink-0" />
+                          <span className="text-sm text-gray-700">Everything in Free</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <Check size={16} className="text-green-500 flex-shrink-0" />
+                          <span className="text-sm text-gray-700">Advanced Analytics Dashboard</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <Check size={16} className="text-green-500 flex-shrink-0" />
+                          <span className="text-sm text-gray-700">Smart Dynamic Pricing</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <Check size={16} className="text-green-500 flex-shrink-0" />
+                          <span className="text-sm text-gray-700">Priority 24/7 Support</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <Check size={16} className="text-green-500 flex-shrink-0" />
+                          <span className="text-sm text-gray-700">Promotion & Marketing Tools</span>
+                        </div>
+                      </div>
+                      
+                      <button
+                        onClick={() => handleUpgradePlan('pro')}
+                        className={`w-full py-3 rounded-lg font-semibold transition-all ${
+                          subscriptionPlan === 'pro'
+                            ? 'bg-gradient-to-r from-orange-100 to-amber-100 text-orange-700'
+                            : 'bg-gradient-to-r from-orange-600 to-amber-600 text-white hover:from-orange-700 hover:to-amber-700'
+                        }`}
+                      >
+                        {subscriptionPlan === 'pro' ? 'Current Plan' : 'Upgrade to Pro →'}
+                      </button>
+                    </div>
+
+                    {/* Enterprise Plan */}
+                    <div className={`bg-gradient-to-b from-purple-50 to-white rounded-xl px-3 py-2 md:px-4 md:py-3 border-2 max-w-[270px] mx-auto ${
+                      subscriptionPlan === 'enterprise' ? 'border-purple-500 shadow-xl' : 'border-purple-300 hover:border-purple-400'
+                    } transition-all`}>
+                      <div className="text-center mb-6">
+                        <div className="flex items-center justify-center gap-2 mb-2">
+                          <Crown size={16} className="text-purple-600" />
+                          <h3 className="text-xl font-bold text-gray-900">Enterprise</h3>
+                        </div>
+                        <div className="text-3xl font-bold text-gray-900 mb-1">₹2,499<span className="text-sm text-gray-500 font-normal">/month</span></div>
+                        <p className="text-sm text-gray-600">For established businesses</p>
+                      </div>
+                      
+                      <div className="space-y-3 mb-6">
+                        <div className="flex items-center gap-3">
+                          <Check size={16} className="text-green-500 flex-shrink-0" />
+                          <span className="text-sm text-gray-700">Everything in Pro</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <Check size={16} className="text-green-500 flex-shrink-0" />
+                          <span className="text-sm text-gray-700">Advanced Security Suite</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <Check size={16} className="text-green-500 flex-shrink-0" />
+                          <span className="text-sm text-gray-700">Marketing Automation</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <Check size={16} className="text-green-500 flex-shrink-0" />
+                          <span className="text-sm text-gray-700">Dedicated Account Manager</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <Check size={16} className="text-green-500 flex-shrink-0" />
+                          <span className="text-sm text-gray-700">Custom API Integrations</span>
+                        </div>
+                      </div>
+                      
+                      <button
+                        onClick={() => handleUpgradePlan('enterprise')}
+                        className={`w-full py-3 rounded-lg font-semibold transition-all ${
+                          subscriptionPlan === 'enterprise'
+                            ? 'bg-gradient-to-r from-purple-100 to-indigo-100 text-purple-700'
+                            : 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white hover:from-purple-700 hover:to-indigo-700'
+                        }`}
+                      >
+                        {subscriptionPlan === 'enterprise' ? 'Current Plan' : 'Upgrade to Enterprise →'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Premium Benefits Grid */}
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900 mb-6 mt-2" style={{ marginTop: '8px' }}>Premium Benefits</h3>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {/* Analytics */}
+                    <div className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-all">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 rounded-lg bg-blue-50">
+                            <BarChart3 size={18} className="text-blue-600" />
+                          </div>
+                          <div>
+                            <h4 className="font-semibold text-gray-900">Advanced Analytics</h4>
+                            <p className="text-xs text-gray-500">Real-time insights & reports</p>
+                          </div>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={analyticsEnabled}
+                            onChange={(e) => {
+                              const success = handlePremiumFeatureToggle('Advanced Analytics', e.target.checked)
+                              if (success) setAnalyticsEnabled(e.target.checked)
+                            }}
+                            className="sr-only peer"
+                          />
+                          <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                        </label>
+                      </div>
+                      <div className={`text-xs px-3 py-1.5 rounded-full w-fit ${
+                        subscriptionPlan === 'free' ? 'bg-gray-100 text-gray-700' : 'bg-blue-100 text-blue-700'
+                      }`}>
+                        {subscriptionPlan === 'free' ? 'Pro Plan Required' : 'Available'}
+                      </div>
+                    </div>
+
+                    {/* Smart Pricing */}
+                    <div className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-all">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 rounded-lg bg-green-50">
+                            <Sparkles size={18} className="text-green-600" />
+                          </div>
+                          <div>
+                            <h4 className="font-semibold text-gray-900">Smart Pricing</h4>
+                            <p className="text-xs text-gray-500">Dynamic pricing automation</p>
+                          </div>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={smartPricing}
+                            onChange={(e) => {
+                              const success = handlePremiumFeatureToggle('Smart Pricing', e.target.checked)
+                              if (success) setSmartPricing(e.target.checked)
+                            }}
+                            className="sr-only peer"
+                          />
+                          <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+                        </label>
+                      </div>
+                      <div className={`text-xs px-3 py-1.5 rounded-full w-fit ${
+                        subscriptionPlan === 'free' ? 'bg-gray-100 text-gray-700' : 'bg-green-100 text-green-700'
+                      }`}>
+                        {subscriptionPlan === 'free' ? 'Pro Plan Required' : 'Available'}
+                      </div>
+                    </div>
+
+                    {/* Priority Support */}
+                    <div className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-all">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 rounded-lg bg-amber-50">
+                            <Bell size={18} className="text-amber-600" />
+                          </div>
+                          <div>
+                            <h4 className="font-semibold text-gray-900">Priority Support</h4>
+                            <p className="text-xs text-gray-500">24/7 dedicated assistance</p>
+                          </div>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={prioritySupport}
+                            onChange={(e) => {
+                              const success = handlePremiumFeatureToggle('Priority Support', e.target.checked)
+                              if (success) setPrioritySupport(e.target.checked)
+                            }}
+                            className="sr-only peer"
+                          />
+                          <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
+                        </label>
+                      </div>
+                      <div className={`text-xs px-3 py-1.5 rounded-full w-fit ${
+                        subscriptionPlan === 'free' ? 'bg-gray-100 text-gray-700' : 'bg-amber-100 text-amber-700'
+                      }`}>
+                        {subscriptionPlan === 'free' ? 'Pro Plan Required' : 'Available'}
+                      </div>
+                    </div>
+
+                    {/* Advanced Security */}
+                    <div className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-all">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 rounded-lg bg-purple-50">
+                            <Shield size={18} className="text-purple-600" />
+                          </div>
+                          <div>
+                            <h4 className="font-semibold text-gray-900">Advanced Security</h4>
+                            <p className="text-xs text-gray-500">Enhanced protection Benefits</p>
+                          </div>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={advancedSecurity}
+                            onChange={(e) => {
+                              const success = handlePremiumFeatureToggle('Advanced Security', e.target.checked)
+                              if (success) setAdvancedSecurity(e.target.checked)
+                            }}
+                            className="sr-only peer"
+                          />
+                          <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                        </label>
+                      </div>
+                      <div className={`text-xs px-3 py-1.5 rounded-full w-fit ${
+                        subscriptionPlan !== 'enterprise' ? 'bg-gray-100 text-gray-700' : 'bg-purple-100 text-purple-700'
+                      }`}>
+                        {subscriptionPlan !== 'enterprise' ? 'Enterprise Only' : 'Available'}
+                      </div>
+                    </div>
+
+                    {/* Marketing Automation */}
+                    <div className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-all">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 rounded-lg bg-pink-50">
+                            <Target size={18} className="text-pink-600" />
+                          </div>
+                          <div>
+                            <h4 className="font-semibold text-gray-900">Marketing Automation</h4>
+                            <p className="text-xs text-gray-500">Automated campaigns</p>
+                          </div>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={marketingAutomation}
+                            onChange={(e) => {
+                              const success = handlePremiumFeatureToggle('Marketing Automation', e.target.checked)
+                              if (success) setMarketingAutomation(e.target.checked)
+                            }}
+                            className="sr-only peer"
+                          />
+                          <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-pink-600"></div>
+                        </label>
+                      </div>
+                      <div className={`text-xs px-3 py-1.5 rounded-full w-fit ${
+                        subscriptionPlan !== 'enterprise' ? 'bg-gray-100 text-gray-700' : 'bg-pink-100 text-pink-700'
+                      }`}>
+                        {subscriptionPlan !== 'enterprise' ? 'Enterprise Only' : 'Available'}
+                      </div>
+                    </div>
+
+                    {/* Promo Notifications */}
+                    <div className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-all">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 rounded-lg bg-emerald-50">
+                            <Gift size={18} className="text-emerald-600" />
+                          </div>
+                          <div>
+                            <h4 className="font-semibold text-gray-900">Promotion Notifications</h4>
+                            <p className="text-xs text-gray-500">Platform promotions & deals</p>
+                          </div>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={promoNotifications}
+                            onChange={(e) => setPromoNotifications(e.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                        </label>
+                      </div>
+                      <div className="text-xs px-3 py-1.5 rounded-full bg-emerald-100 text-emerald-700 w-fit">
+                        All Plans
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
-            {/* Action Buttons */}
-            <div className="flex gap-3 sticky bottom-4 bg-white rounded-lg border border-gray-200 p-4 shadow-md">
-              <button
-                onClick={handleSaveSettings}
-                disabled={isSaving}
-                className="flex-1 flex items-center justify-center gap-2 px-6 py-2.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Save size={18} />
-                {isSaving ? 'Saving...' : 'Save Settings'}
-              </button>
-              <button
-                disabled={isSaving}
-                className="px-6 py-2.5 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors font-medium disabled:opacity-50"
-              >
-                Cancel
-              </button>
-            </div>
+            {activeTab === 'timings' && (
+              <div className="space-y-6">
+                <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-5">
+                  <div className="flex flex-row flex-wrap gap-6 items-center">
+                    {/* Same Timing Toggle */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-gray-700 whitespace-nowrap">
+                        Same for all days
+                      </span>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={applyMondayToAll}
+                          onChange={(e) => {
+                            const checked = e.target.checked
+                            setApplyMondayToAll(checked)
+                            if (checked) {
+                              const monday = storeSchedule.find(d => d.day === 'monday')
+                              if (monday) {
+                                setStoreSchedule(prev =>
+                                  prev.map(d => ({
+                                    ...d,
+                                    slots: monday.slots,
+                                    is24Hours: monday.is24Hours,
+                                    isOutletClosed: monday.isOutletClosed
+                                  }))
+                                )
+                              }
+                            }
+                          }}
+                          className="sr-only"
+                        />
+                        <div className={`w-9 h-5 rounded-full transition-colors ${applyMondayToAll ? 'bg-blue-600' : 'bg-gray-300'}`}>
+                          <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${applyMondayToAll ? 'translate-x-4' : ''}`} />
+                        </div>
+                      </label>
+                    </div>
+
+                    {/* 24 Hours Toggle */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-gray-700 whitespace-nowrap">
+                        Open 24 hours (all days)
+                      </span>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={storeSchedule.every(d => d.is24Hours)}
+                          onChange={toggle24HoursForAll}
+                          className="sr-only"
+                        />
+                        <div className={`w-9 h-5 rounded-full transition-colors ${storeSchedule.every(d => d.is24Hours) ? 'bg-blue-600' : 'bg-gray-300'}`}>
+                          <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${storeSchedule.every(d => d.is24Hours) ? 'translate-x-4' : ''}`} />
+                        </div>
+                      </label>
+                    </div>
+
+                    {/* Closed Day Selector */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-gray-700 whitespace-nowrap">
+                        Outlet closed on
+                      </span>
+                      <select
+                        value={closedDay || ''}
+                        onChange={(e) => {
+                          const value = e.target.value as DayType
+                          if (value) {
+                            handleClosedDayChange(value)
+                          } else {
+                            setStoreSchedule(prev =>
+                              prev.map(d => ({ ...d, isOutletClosed: false }))
+                            )
+                            setClosedDay(null)
+                          }
+                        }}
+                        className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="">Select day</option>
+                        {storeSchedule.map(day => (
+                          <option key={day.day} value={day.day}>
+                            {day.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Weekly Summary */}
+                    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-200 p-6 min-w-[320px]">
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div>
+                          <h4 className="font-bold text-gray-900">Weekly Operational Summary</h4>
+                          <p className="text-sm text-gray-600">Total operating hours this week</p>
+                        </div>
+                        <div className="text-center md:text-right">
+                          <div className="text-3xl font-bold text-blue-700">
+                            {storeSchedule.reduce((total, day) => total + day.operationalHours, 0)} hrs
+                          </div>
+                          <div className="text-sm text-gray-600">
+                            {storeSchedule.reduce((total, day) => total + day.operationalMinutes, 0)} minutes
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Compact Days Grid - 7 Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                  {storeSchedule.map((daySchedule) => (
+                    <div key={daySchedule.day} className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-all">
+                      {/* Day Header */}
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <div className={`w-8 h-8 rounded-md flex items-center justify-center ${
+                            daySchedule.isOutletClosed ? 'bg-red-100' : daySchedule.is24Hours ? 'bg-blue-100' : daySchedule.isOpen ? 'bg-emerald-100' : 'bg-red-100'
+                          }`}>
+                            {daySchedule.isOutletClosed ? (
+                              <X size={14} className="text-red-600" />
+                            ) : daySchedule.is24Hours ? (
+                              <Clock size={14} className="text-blue-600" />
+                            ) : daySchedule.isOpen ? (
+                              <CheckCircle2 size={14} className="text-emerald-600" />
+                            ) : (
+                              <X size={14} className="text-red-600" />
+                            )}
+                          </div>
+                          <div>
+                            <h3 className="font-bold text-gray-900 text-sm">{daySchedule.label}</h3>
+                            <p className="text-xs text-gray-500">{daySchedule.duration}</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Status Badge */}
+                      <div className="mb-3">
+                        {daySchedule.isOutletClosed ? (
+                          <span className="inline-block px-2 py-1 bg-red-50 text-red-700 rounded text-xs font-medium border border-red-200">
+                            🔴 OUTLET CLOSED
+                          </span>
+                        ) : daySchedule.is24Hours ? (
+                          <span className="inline-block px-2 py-1 bg-blue-50 text-blue-700 rounded text-xs font-medium border border-blue-200">
+                            ⚡ 24 HOURS OPEN
+                          </span>
+                        ) : daySchedule.isOpen ? (
+                          <span className="inline-block px-2 py-1 bg-emerald-50 text-emerald-700 rounded text-xs font-medium border border-emerald-200">
+                            🟢 STORE OPEN
+                          </span>
+                        ) : (
+                          <span className="inline-block px-2 py-1 bg-red-50 text-red-700 rounded text-xs font-medium border border-red-200">
+                            🔴 STORE CLOSED
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Time Slots - Direct Editing */}
+                      {!daySchedule.isOutletClosed && !daySchedule.is24Hours && daySchedule.isOpen && (
+                        <div className="space-y-2 mb-3">
+                          {daySchedule.slots.map((slot, index) => (
+                            <div key={slot.id} className="space-y-1">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-medium text-gray-500">Slot {index + 1}</span>
+                                {daySchedule.slots.length > 1 && (
+                                  <button
+                                    onClick={() => removeTimeSlot(daySchedule.day, slot.id)}
+                                    className="text-gray-400 hover:text-red-600 text-xs"
+                                  >
+                                    <Trash2 size={12} />
+                                  </button>
+                                )}
+                              </div>
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="text-xs text-gray-600 mb-1 block">From</label>
+                                  <input
+                                    type="time"
+                                    value={slot.openingTime}
+                                    onChange={(e) => updateTimeSlot(daySchedule.day, slot.id, 'openingTime', e.target.value)}
+                                    className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-xs text-gray-600 mb-1 block">To</label>
+                                  <input
+                                    type="time"
+                                    value={slot.closingTime}
+                                    onChange={(e) => updateTimeSlot(daySchedule.day, slot.id, 'closingTime', e.target.value)}
+                                    className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Add Slot Button */}
+                      {!daySchedule.isOutletClosed && !daySchedule.is24Hours && daySchedule.isOpen && daySchedule.slots.length < 2 && (
+                        <button
+                          onClick={() => addTimeSlot(daySchedule.day)}
+                          className="w-full mb-3 text-xs px-2 py-1.5 border border-dashed border-gray-300 rounded hover:border-blue-400 hover:bg-blue-50 text-blue-600 flex items-center justify-center gap-1"
+                        >
+                          <Plus size={12} />
+                          Add Another Slot (Max 2)
+                        </button>
+                      )}
+
+                      {/* Quick Actions */}
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          onClick={() => toggleDayExpansion(daySchedule.day)}
+                          className="flex-1 text-xs px-2 py-1.5 bg-gray-100 hover:bg-gray-200 rounded text-gray-700"
+                        >
+                          {expandedDay === daySchedule.day ? 'Hide Options' : 'More Options'}
+                        </button>
+                      </div>
+
+                      {/* Expanded Options */}
+                      {expandedDay === daySchedule.day && (
+                        <div className="mt-3 pt-3 border-t border-gray-200 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-xs font-medium text-gray-700">24 Hours Mode</p>
+                              <p className="text-xs text-gray-500">Open for 24 hours</p>
+                            </div>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={daySchedule.is24Hours}
+                                onChange={() => handle24HoursToggle(daySchedule.day)}
+                                className="sr-only peer"
+                              />
+                              <div className="w-8 h-4 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600"></div>
+                            </label>
+                          </div>
+                          
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-xs font-medium text-gray-700">Close Outlet</p>
+                              <p className="text-xs text-gray-500">Mark outlet as closed</p>
+                            </div>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={daySchedule.isOutletClosed}
+                                onChange={() => handleOutletClosedToggle(daySchedule.day)}
+                                className="sr-only peer"
+                              />
+                              <div className="w-8 h-4 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-red-600"></div>
+                            </label>
+                          </div>
+                          
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-xs font-medium text-gray-700">Open Store</p>
+                              <p className="text-xs text-gray-500">Toggle store open/closed</p>
+                            </div>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={daySchedule.isOpen && !daySchedule.isOutletClosed}
+                                onChange={() => handleDayToggle(daySchedule.day)}
+                                className="sr-only peer"
+                              />
+                              <div className="w-8 h-4 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-600"></div>
+                            </label>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Save Button */}
+                <div className="sticky bottom-4 bg-white rounded-xl border border-gray-200 p-4 shadow-lg">
+                  <button
+                    onClick={saveStoreTimings}
+                    className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 transition-all font-semibold"
+                  >
+                    <Save size={18} />
+                    Save All Outlet Timings
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'gatimitra' && (
+              <div className="flex flex-col items-center justify-center min-h-[400px] bg-white rounded-xl border border-gray-200 py-12">
+                <img src="/gstore.png" alt="Store" className="w-64 h-64 mb-8" style={{ maxWidth: '320px', maxHeight: '320px' }} />
+                <p className="text-xl font-semibold text-center mb-6" style={{ color: '#08a353ff' }}>Experience your store from a customer's perspective on <span style={{ color: '#a89a03ff' }}>GatiMitra</span>.</p>
+                <a
+                  href="https://gatimitra.com/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-12 py-4 rounded-xl bg-gradient-to-r from-indigo-400 to-red-400 text-white font-semibold text-lg shadow-md hover:from-indigo-500 hover:to-purple-500 transition text-center"
+                  style={{ display: 'inline-block' }}
+                >
+                  View store now
+                </a>
+              </div>
+            )}
           </div>
         </div>
+
+        {/* Temp Off Modal */}
+        {showTempOffModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl max-w-sm w-full">
+              <div className="flex items-center justify-between p-6 border-b border-gray-200">
+                <h2 className="text-lg font-bold text-gray-900">Close Store Temporarily</h2>
+                <button onClick={() => setShowTempOffModal(false)} className="text-gray-500 hover:text-gray-900">
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-4">
+                <p className="text-sm text-gray-600">For how many minutes do you want to close the store?</p>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-900 mb-2">Duration (Minutes)</label>
+                  <input
+                    type="number"
+                    value={tempOffDurationInput}
+                    onChange={(e) => setTempOffDurationInput(e.target.value)}
+                    min="1"
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    placeholder="30"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Default: 30 minutes</p>
+                </div>
+
+                <div className="space-y-2">
+                  <button
+                    onClick={handleTempOff}
+                    className="w-full px-4 py-2.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 font-semibold transition-colors"
+                  >
+                    ✓ Close for {parseInt(tempOffDurationInput) || 30} Minutes
+                  </button>
+                  <button
+                    onClick={() => setShowTempOffModal(false)}
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg hover:bg-gray-50 font-semibold"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </MXLayoutWhite>
     </>
   )
 }
 
-import { Suspense } from 'react';
-
 export default function StoreSettingsPage() {
-  return (
-    <Suspense fallback={<div>Loading...</div>}>
-      <StoreSettingsContent />
-    </Suspense>
-  );
+  return <StoreSettingsContent />
 }

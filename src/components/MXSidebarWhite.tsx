@@ -75,8 +75,8 @@ export const MXSidebarWhite: React.FC<MXSidebarWhiteProps> = ({
       href: '/mx/payments'
     },
     {
-      id: 'store-settings',
-      label: 'Store Settings',
+      id: 'settings',
+      label: 'Settings',
       icon: <Settings size={20} />,
       href: '/mx/store-settings'
     },
