@@ -433,20 +433,21 @@ function OffersContent() {
       }
 
       if (result) {
-        // Update local state
-        if (editingId) {
-          setOffers(prev => prev.map(offer => 
-            offer.offer_id === editingId ? result! : offer
-          ))
-        } else {
-          setOffers(prev => [result!, ...prev])
-        }
-
-        toast.success(editingId ? 'Offer updated successfully!' : 'Offer created successfully!')
-        setShowModal(false)
-        resetForm()
+        // Update local state instantly with new offer data
+        setOffers(prev => {
+          if (editingId) {
+            // Replace the edited offer with the new result
+            return prev.map(offer => offer.offer_id === editingId ? result : offer);
+          } else {
+            // Add new offer to the top
+            return [result, ...prev];
+          }
+        });
+        toast.success(editingId ? 'Offer updated successfully!' : 'Offer created successfully!');
+        setShowModal(false);
+        resetForm();
       } else {
-        toast.error('Failed to save offer')
+        toast.error('Failed to save offer');
       }
     } catch (error) {
       console.error('Error saving offer:', error)
@@ -680,15 +681,31 @@ function OffersContent() {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                 {offers.map(offer => {
-                  const isExpired = new Date(offer.valid_till) < new Date();
-                  const daysLeft = Math.ceil((new Date(offer.valid_till).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+                  const now = new Date();
+                  const validFrom = new Date(offer.valid_from);
+                  const validTill = new Date(offer.valid_till);
+                  let daysLeft = 0;
+                  let statusLabel = '';
+                  if (now < validFrom) {
+                    // Offer not started yet
+                    const totalDuration = Math.ceil((validTill.getTime() - validFrom.getTime()) / (1000 * 60 * 60 * 24));
+                    const startsIn = Math.ceil((validFrom.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                    statusLabel = `Starts in ${startsIn} day${startsIn !== 1 ? 's' : ''} (Duration: ${totalDuration} day${totalDuration !== 1 ? 's' : ''})`;
+                  } else if (now > validTill) {
+                    // Offer expired
+                    statusLabel = 'Expired';
+                  } else {
+                    // Offer is active, show days left from now to validTill
+                    daysLeft = Math.ceil((validTill.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                    statusLabel = `${daysLeft} day${daysLeft !== 1 ? 's' : ''} left`;
+                  }
                   const status = getStatusColor(offer);
                   const badgeColor = getOfferBadgeColor(offer.offer_type);
                   
                   return (
                     <div
                       key={offer.offer_id || Math.random()}
-                      className={`bg-white rounded-xl shadow-sm border border-gray-200 hover:shadow-lg transition-all duration-300 hover:-translate-y-0.5 group relative overflow-hidden ${isExpired ? 'opacity-80' : ''}`}
+                      className={`bg-white rounded-xl shadow-sm border border-gray-200 hover:shadow-lg transition-all duration-300 hover:-translate-y-0.5 group relative overflow-hidden${statusLabel === 'Expired' ? ' opacity-80' : ''}`}
                       style={{ minHeight: 'auto', maxWidth: 340, cursor: 'pointer', paddingTop: 0, paddingBottom: 0 }}
                     >
                       {/* Top accent bar */}
@@ -719,9 +736,19 @@ function OffersContent() {
                                 className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-indigo-50 text-indigo-700 relative hover:bg-indigo-100"
                                 style={{ cursor: 'pointer', position: 'relative' }}
                                 tabIndex={0}
+                                onMouseEnter={e => {
+                                  const tooltip = e.currentTarget.querySelector('.offer-items-tooltip');
+                                  if (tooltip) tooltip.style.opacity = '1';
+                                  if (tooltip) tooltip.style.pointerEvents = 'auto';
+                                }}
+                                onMouseLeave={e => {
+                                  const tooltip = e.currentTarget.querySelector('.offer-items-tooltip');
+                                  if (tooltip) tooltip.style.opacity = '0';
+                                  if (tooltip) tooltip.style.pointerEvents = 'none';
+                                }}
                               >
                                 Specific Items
-                                <span className="absolute left-1/2 z-50 -translate-x-1/2 mt-2 min-w-max bg-white border border-gray-300 rounded-lg shadow-lg text-xs text-gray-900 px-3 py-2 whitespace-pre-line opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity duration-200"
+                                <span className="offer-items-tooltip absolute left-1/2 z-50 -translate-x-1/2 mt-2 min-w-max bg-white border border-gray-300 rounded-lg shadow-lg text-xs text-gray-900 px-3 py-2 whitespace-pre-line opacity-0 pointer-events-none transition-opacity duration-200"
                                   style={{
                                     top: '100%',
                                     whiteSpace: 'pre-line',
@@ -735,7 +762,8 @@ function OffersContent() {
                                   {offer.menu_item_ids && offer.menu_item_ids.length > 0
                                     ? offer.menu_item_ids.map(
                                         id => {
-                                          const item = menuItems.find(m => m.item_id === id);
+                                          // Some menuItems may use id or item_id, so check both
+                                          const item = menuItems.find(m => m.item_id === id || m.id === id);
                                           return item ? `• ${item.item_name}` : null;
                                         }
                                       ).filter(Boolean).join('\n')
@@ -807,11 +835,11 @@ function OffersContent() {
                                 {new Date(offer.valid_from).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} - {new Date(offer.valid_till).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
                               </span>
                             </div>
-                            {!isExpired && daysLeft > 0 && (
+                            {(statusLabel && statusLabel !== 'Expired') && (
                               <div className="flex items-center gap-1 bg-gradient-to-r from-amber-100 to-orange-100 px-2 py-1 rounded-full">
                                 <Clock size={10} className="text-amber-700" />
                                 <span className="font-bold text-amber-800 text-[10px]">
-                                  {daysLeft} day{daysLeft !== 1 ? 's' : ''} left
+                                  {statusLabel}
                                 </span>
                               </div>
                             )}

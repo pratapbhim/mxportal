@@ -295,29 +295,34 @@ export async function deleteOffer(offerId: string): Promise<boolean> {
 // Upload offer image to R2
 export async function uploadOfferImage(storeId: string, offerId: string, file: File): Promise<string | null> {
   try {
+    // Prepare file path for R2
     const fileExt = file.name.split('.').pop();
     const fileName = `${storeId}_${offerId}_${Date.now()}.${fileExt}`;
     const filePath = `offers/${fileName}`;
 
-    const { error: uploadError } = await supabase.storage
-      .from('offer-images')
-      .upload(filePath, file);
+    // Upload to R2 using the same API as menu items
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('parent', 'offers');
+    formData.append('filename', fileName);
+    // No menu_item_id needed for offers
 
-    if (uploadError) throw uploadError;
-
-    // Get a public URL (no expiry)
-    const { data: publicUrlData } = supabase.storage
-      .from('offer-images')
-      .getPublicUrl(filePath);
-
-    if (!publicUrlData?.publicUrl) {
-      console.error('Error getting public URL for offer image.');
-      return null;
+    const uploadRes = await fetch('/api/upload/r2', {
+      method: 'POST',
+      body: formData,
+    });
+    if (!uploadRes.ok) {
+      const errorData = await uploadRes.json();
+      throw new Error(errorData.error || 'Offer image upload failed');
     }
-
-    return publicUrlData.publicUrl;
+    const uploadData = await uploadRes.json();
+    const publicUrl = uploadData.url;
+    if (!publicUrl) {
+      throw new Error('No public URL returned from R2 upload');
+    }
+    return publicUrl;
   } catch (error) {
-    console.error('Error uploading image:', error);
+    console.error('Error uploading offer image to R2:', error);
     return null;
   }
 }

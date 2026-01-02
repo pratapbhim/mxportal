@@ -26,13 +26,10 @@ export async function POST(request: NextRequest) {
     const file = formData.get('file') as File;
     const parent = formData.get('parent') as string;
     const filename = formData.get('filename') as string;
-    const menu_item_id = formData.get('menu_item_id') as string;
+    const menu_item_id = formData.get('menu_item_id') as string | undefined;
 
     if (!file) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 });
-    }
-    if (!menu_item_id) {
-      return NextResponse.json({ error: 'No menu_item_id provided' }, { status: 400 });
     }
 
     // Determine the full path
@@ -56,15 +53,17 @@ export async function POST(request: NextRequest) {
     // Use R2_PUBLIC_BASE_URL for public image URL (remove bucket if custom domain is mapped directly to the bucket)
     const publicUrl = `${process.env.R2_PUBLIC_BASE_URL}/${fullPath}`;
 
-    // Update menu_items table with the image URL
-    const { error: dbError } = await supabase
-      .from('menu_items')
-      .update({ image_url: publicUrl, updated_at: new Date().toISOString() })
-      .eq('item_id', menu_item_id);
+    // If menu_item_id is provided, update menu_items table with the image URL
+    if (menu_item_id) {
+      const { error: dbError } = await supabase
+        .from('menu_items')
+        .update({ image_url: publicUrl, updated_at: new Date().toISOString() })
+        .eq('item_id', menu_item_id);
 
-    if (dbError) {
-      console.error('Supabase DB update error:', dbError);
-      return NextResponse.json({ error: 'Image uploaded but failed to update DB', details: dbError.message }, { status: 500 });
+      if (dbError) {
+        console.error('Supabase DB update error:', dbError);
+        return NextResponse.json({ error: 'Image uploaded but failed to update DB', details: dbError.message }, { status: 500 });
+      }
     }
 
     return NextResponse.json({ 
