@@ -1,11 +1,51 @@
 'use client'
 
-import { useState } from 'react'
-import Link from 'next/link'
-import { ChefHat, Store, ArrowRight } from 'lucide-react'
+
+import { useState } from 'react';
+import Link from 'next/link';
+import { ChefHat, Store, ArrowRight } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { LoginModal } from '@/components';
 
 export default function AuthHome() {
-  const [isLoading, setIsLoading] = useState(false)
+  const [isLoading, setIsLoading] = useState(false);
+  const [loginModalOpen, setLoginModalOpen] = useState(false);
+  const router = useRouter();
+
+  // Handler for Phone+OTP login (after OTP verification)
+  const handlePhoneLogin = async (phone: string) => {
+    // Call backend to resolve parent and stores
+    const res = await fetch('/api/auth/resolve-parent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone }),
+    });
+    const data = await res.json();
+    if (!data.parentExists) {
+      // Continue registration flow
+      router.push('/auth/register-phone?phone=' + encodeURIComponent(phone));
+      setLoginModalOpen(false);
+      return;
+    }
+    if (data.stores.length === 1) {
+      // Redirect to merchant portal for the single store
+      router.push(`/merchant-portal/${data.stores[0].store_id}`);
+      setLoginModalOpen(false);
+      return;
+    }
+    // If multiple stores, show store selection (handled in next step)
+    // For now, just alert (replace with store selection modal in next step)
+    alert('Multiple stores found. Please select a store in the next step.');
+    // TODO: Show StoreSelectionList modal here
+  };
+
+  // Handler for Google login (Agent flow)
+  const handleGoogleLogin = () => {
+    // TODO: Integrate Google OAuth logic here (e.g., using next-auth or custom Google login)
+    // On success, redirect to search page (agent flow)
+    router.push('/auth/search');
+    setLoginModalOpen(false);
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-purple-50">
@@ -63,9 +103,8 @@ export default function AuthHome() {
               </Link>
             </div>
             <div className="w-full max-w-xl">
-              <Link href="/auth/search">
+              <Link href="/auth/login-store">
                 <button
-                  onClick={() => setIsLoading(true)}
                   className="w-full group relative overflow-hidden rounded-2xl py-6 px-8 font-semibold text-lg transition-all duration-300 border-2 border-blue-600 hover:bg-blue-50 hover:border-blue-700 hover:shadow-lg"
                 >
                   <div className="relative flex items-center justify-between text-blue-600 group-hover:text-blue-700">

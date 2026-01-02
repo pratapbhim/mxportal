@@ -1,5 +1,29 @@
-import { create } from 'zustand'
-import { Order } from './types'
+// Placeholder: Replace with real DB logic
+// Fetch stores for the user from Supabase (using parent_id as userId)
+import { supabaseAdmin } from './supabase';
+import { create } from 'zustand';
+
+export async function fetchStoresForUser(userId: string) {
+  const { data, error } = await supabaseAdmin
+    .from('merchant_store')
+    .select('*')
+    .eq('parent_id', userId);
+  if (error) {
+    console.error('Error fetching stores:', error.message);
+    return [];
+  }
+  // Optionally map/transform data to match expected shape
+  return (data || []).map(store => ({
+    store_id: store.id,
+    store_name: store.store_name,
+    full_address: store.full_address,
+    store_phones: store.store_phones,
+    approval_status: store.approval_status,
+    is_active: store.is_active,
+    parent_id: store.parent_id,
+  }));
+}
+
 
 interface OrderStore {
   orders: Order[]
