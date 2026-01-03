@@ -59,7 +59,6 @@ function StoreSettingsContent() {
   }, [activeTab])
   const [showStoreTimingModal, setShowStoreTimingModal] = useState(false)
   const [expandedDay, setExpandedDay] = useState<DayType | null>(null)
-  const [closedDay, setClosedDay] = useState<DayType | null>(null)
 
   // Form state
   const [isStoreOpen, setIsStoreOpen] = useState(true)
@@ -86,8 +85,10 @@ function StoreSettingsContent() {
   const [marketingAutomation, setMarketingAutomation] = useState(false)
   const [subscriptionPlan, setSubscriptionPlan] = useState<'free' | 'pro' | 'enterprise'>('pro')
 
-  // Outlet timings state
+  // Outlet timings state - Loaded from Supabase
   const [applyMondayToAll, setApplyMondayToAll] = useState(false)
+  const [force24Hours, setForce24Hours] = useState(false)
+  const [closedDay, setClosedDay] = useState<DayType | null>(null)
 
   // Calculate total operational time for a day
   const calculateOperationalTime = (slots: TimeSlot[]) => {
@@ -118,25 +119,99 @@ function StoreSettingsContent() {
   // Initial store schedule
   const initialSchedule: DaySchedule[] = [
     'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'
-  ].map(day => {
-    const slots = [{ id: '1', openingTime: '11:00', closingTime: '01:00' }]
-    const { hours, minutes } = calculateOperationalTime(slots)
-    
-    return {
-      day: day as DayType,
-      label: day.toUpperCase(),
-      isOpen: true,
-      slots,
-      is24Hours: false,
-      isOutletClosed: false,
-      duration: `${hours}.${minutes.toString().padStart(2, '0')} hrs`,
-      operationalHours: hours,
-      operationalMinutes: minutes
-    }
-  })
+  ].map(day => ({
+    day: day as DayType,
+    label: day.toUpperCase(),
+    isOpen: false,
+    slots: [],
+    is24Hours: false,
+    isOutletClosed: false,
+    duration: '0.0 hrs',
+    operationalHours: 0,
+    operationalMinutes: 0
+  }))
 
   // Store timing schedule state
   const [storeSchedule, setStoreSchedule] = useState<DaySchedule[]>(initialSchedule)
+
+  // Load timings from Supabase on page load
+  useEffect(() => {
+    const fetchTimings = async () => {
+      if (!storeId) return;
+      try {
+        const res = await fetch(`/api/outlet-timings?store_id=${storeId}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!data || data.error) return;
+        
+        // Map Supabase data to DaySchedule[]
+        const days: DayType[] = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
+        const loadedSchedule: DaySchedule[] = days.map(day => {
+          const isOpen = !!data[`${day}_open`];
+          const isOutletClosed = data[`closed_day`] === day;
+          const slots = [];
+          let is24Hours = false;
+          
+          if (data[`${day}_slot1_start`] && data[`${day}_slot1_end`]) {
+            slots.push({ 
+              id: '1', 
+              openingTime: data[`${day}_slot1_start`], 
+              closingTime: data[`${day}_slot1_end`] 
+            });
+            if (data[`${day}_slot1_start`] === '00:00' && data[`${day}_slot1_end`] === '00:00') {
+              is24Hours = true;
+            }
+          }
+          if (data[`${day}_slot2_start`] && data[`${day}_slot2_end`]) {
+            slots.push({ 
+              id: '2', 
+              openingTime: data[`${day}_slot2_start`], 
+              closingTime: data[`${day}_slot2_end`] 
+            });
+          }
+          
+          // Calculate duration
+          let hours = 0, minutes = 0;
+          if (data[`${day}_total_duration`]) {
+            const [h, m] = data[`${day}_total_duration`].split(':').map(Number);
+            hours = h || 0;
+            minutes = m || 0;
+          }
+          
+          return {
+            day,
+            label: day.toUpperCase(),
+            isOpen: isOpen && !isOutletClosed,
+            slots,
+            is24Hours,
+            isOutletClosed,
+            duration: is24Hours ? '24.0 hrs' : `${hours}.${minutes.toString().padStart(2, '0')} hrs`,
+            operationalHours: is24Hours ? 24 : hours,
+            operationalMinutes: is24Hours ? 0 : minutes
+          };
+        });
+        
+        setStoreSchedule(loadedSchedule);
+        
+        // Set toggle states from Supabase
+        setApplyMondayToAll(!!data.same_for_all);
+        setForce24Hours(!!data.force_24_hours);
+        setClosedDay(data.closed_day || null);
+        
+        // If 24 hours is enabled, ensure same_for_all is also true
+        if (data.force_24_hours) {
+          setApplyMondayToAll(true);
+        }
+        
+      } catch (error) {
+        console.error('Error loading timings:', error);
+      }
+    };
+    
+    if (storeId) {
+      fetchTimings();
+    }
+  }, [storeId]);
 
   // Update duration when slots change
   useEffect(() => {
@@ -286,14 +361,29 @@ function StoreSettingsContent() {
   const handleDayToggle = (day: DayType) => {
     setStoreSchedule(prev => prev.map(d => {
       if (d.day === day) {
-        const newIsOpen = !d.isOpen
-        const newSlots = newIsOpen && !d.is24Hours && !d.isOutletClosed ? 
-          [{ id: Date.now().toString(), openingTime: '11:00', closingTime: '01:00' }] : []
-        const { hours, minutes } = calculateOperationalTime(newSlots)
+        const newIsOpen = !d.isOpen;
+        const newSlots = (newIsOpen && !d.is24Hours && !d.isOutletClosed) ? [] : d.slots;
+        const { hours, minutes } = calculateOperationalTime(newSlots);
+        
+        // Disable same for all when any day is modified
+        if (applyMondayToAll) {
+          setApplyMondayToAll(false);
+        }
+        
+        // Disable 24 hours when any day is modified
+        if (force24Hours) {
+          setForce24Hours(false);
+        }
+        
+        // If day is being opened, remove from closed day
+        if (newIsOpen && closedDay === day) {
+          setClosedDay(null);
+        }
         
         return {
           ...d,
           isOpen: newIsOpen,
+          isOutletClosed: false,
           slots: newSlots,
           duration: `${hours}.${minutes.toString().padStart(2, '0')} hrs`,
           operationalHours: hours,
@@ -310,13 +400,28 @@ function StoreSettingsContent() {
       if (d.day === day) {
         const new24Hours = !d.is24Hours
         
+        // Disable same for all when individual day is modified
+        if (applyMondayToAll) {
+          setApplyMondayToAll(false);
+        }
+        
+        // Disable force24Hours when individual day is modified
+        if (force24Hours) {
+          setForce24Hours(false);
+        }
+        
+        // Remove from closed day if enabling 24 hours
+        if (new24Hours && closedDay === day) {
+          setClosedDay(null);
+        }
+        
         return {
           ...d,
           is24Hours: new24Hours,
           isOutletClosed: false,
-          slots: [],
-          duration: new24Hours ? '24.0 hrs' : '14.0 hrs',
-          operationalHours: new24Hours ? 24 : 14,
+          slots: new24Hours ? [{ id: '1', openingTime: '00:00', closingTime: '00:00' }] : [],
+          duration: new24Hours ? '24.0 hrs' : '0.0 hrs',
+          operationalHours: new24Hours ? 24 : 0,
           operationalMinutes: 0
         }
       }
@@ -348,6 +453,9 @@ function StoreSettingsContent() {
     
     if (newOutletClosed) {
       setClosedDay(day)
+      // Disable same for all and 24 hours when any day is closed
+      setApplyMondayToAll(false);
+      setForce24Hours(false);
     } else if (closedDay === day) {
       setClosedDay(null)
     }
@@ -372,6 +480,16 @@ function StoreSettingsContent() {
       if (d.day === day) {
         const newSlots = [...d.slots, newSlot]
         const { hours, minutes } = calculateOperationalTime(newSlots)
+        
+        // Disable same for all when individual day is modified
+        if (applyMondayToAll) {
+          setApplyMondayToAll(false);
+        }
+        
+        // Disable 24 hours when slots are added
+        if (force24Hours) {
+          setForce24Hours(false);
+        }
         
         return {
           ...d,
@@ -398,6 +516,16 @@ function StoreSettingsContent() {
         const newSlots = d.slots.filter(s => s.id !== slotId)
         const { hours, minutes } = calculateOperationalTime(newSlots)
         
+        // Disable same for all when individual day is modified
+        if (applyMondayToAll) {
+          setApplyMondayToAll(false);
+        }
+        
+        // Disable 24 hours when slots are modified
+        if (force24Hours) {
+          setForce24Hours(false);
+        }
+        
         return {
           ...d,
           slots: newSlots,
@@ -412,23 +540,38 @@ function StoreSettingsContent() {
   }
 
   const updateTimeSlot = (day: DayType, slotId: string, field: 'openingTime' | 'closingTime', value: string) => {
-    setStoreSchedule(prev => prev.map(d => {
-      if (d.day === day) {
-        const newSlots = d.slots.map(slot => 
-          slot.id === slotId ? { ...slot, [field]: value } : slot
-        )
-        const { hours, minutes } = calculateOperationalTime(newSlots)
-        
-        return {
-          ...d,
-          slots: newSlots,
-          duration: `${hours}.${minutes.toString().padStart(2, '0')} hrs`,
-          operationalHours: hours,
-          operationalMinutes: minutes
+    setStoreSchedule(prev => {
+      const newSchedule = prev.map(d => {
+        if (d.day === day) {
+          const newSlots = d.slots.map(slot => 
+            slot.id === slotId ? { ...slot, [field]: value } : slot
+          )
+          const { hours, minutes } = calculateOperationalTime(newSlots)
+          
+          // Disable same for all when individual day is modified
+          if (applyMondayToAll) {
+            setApplyMondayToAll(false);
+          }
+          
+          // Disable 24 hours when slots are modified
+          if (force24Hours) {
+            setForce24Hours(false);
+          }
+          
+          return {
+            ...d,
+            slots: newSlots,
+            duration: `${hours}.${minutes.toString().padStart(2, '0')} hrs`,
+            operationalHours: hours,
+            operationalMinutes: minutes
+          }
         }
-      }
-      return d
-    }))
+        return d
+      });
+      
+      return newSchedule;
+    });
+    toast.success('Time slot updated')
   }
 
   const copyToAllDays = () => {
@@ -437,14 +580,96 @@ function StoreSettingsContent() {
       setStoreSchedule(prev => prev.map(day => ({
         ...mondaySchedule,
         day: day.day,
-        label: day.label
+        label: day.label,
+        isOutletClosed: false // Reset outlet closed when copying
       })))
+      
+      // Enable same for all
+      setApplyMondayToAll(true);
+      // Reset closed day
+      setClosedDay(null);
       toast.success('Timings copied to all days')
     }
   }
 
-  const saveStoreTimings = () => {
-    toast.success('✅ Store timings saved successfully!')
+  const saveStoreTimings = async () => {
+    if (!storeId) {
+      toast.error('Store ID not found!');
+      return;
+    }
+    
+    setIsSaving(true);
+    
+    // Prepare timings object for API
+    const timings: any = { 
+      store_id: storeId,
+      same_for_all: applyMondayToAll,
+      force_24_hours: force24Hours,
+      closed_day: closedDay
+    };
+    
+    // If 24 hours is enabled for all, set all days to 24 hours
+    if (force24Hours) {
+      setApplyMondayToAll(true); // Auto-enable same for all
+      timings.same_for_all = true;
+      
+      storeSchedule.forEach(day => {
+        const prefix = day.day;
+        timings[`${prefix}_open`] = true;
+        timings[`${prefix}_slot1_start`] = '00:00';
+        timings[`${prefix}_slot1_end`] = '00:00';
+        timings[`${prefix}_slot2_start`] = null;
+        timings[`${prefix}_slot2_end`] = null;
+        timings[`${prefix}_total_duration`] = '24:00';
+      });
+    } 
+    // If same for all is enabled, copy Monday's schedule to all days
+    else if (applyMondayToAll) {
+      const monday = storeSchedule.find(d => d.day === 'monday');
+      if (monday) {
+        storeSchedule.forEach(day => {
+          const prefix = day.day;
+          timings[`${prefix}_open`] = !monday.isOutletClosed;
+          timings[`${prefix}_slot1_start`] = monday.slots[0]?.openingTime || null;
+          timings[`${prefix}_slot1_end`] = monday.slots[0]?.closingTime || null;
+          timings[`${prefix}_slot2_start`] = monday.slots[1]?.openingTime || null;
+          timings[`${prefix}_slot2_end`] = monday.slots[1]?.closingTime || null;
+          timings[`${prefix}_total_duration`] = monday.is24Hours ? '24:00' : `${monday.operationalHours}:${monday.operationalMinutes.toString().padStart(2, '0')}`;
+        });
+        timings.closed_day = monday.isOutletClosed ? 'monday' : null;
+      }
+    } 
+    // Otherwise, save each day individually
+    else {
+      storeSchedule.forEach(day => {
+        const prefix = day.day;
+        timings[`${prefix}_open`] = day.isOpen && !day.isOutletClosed;
+        timings[`${prefix}_slot1_start`] = day.slots[0]?.openingTime || null;
+        timings[`${prefix}_slot1_end`] = day.slots[0]?.closingTime || null;
+        timings[`${prefix}_slot2_start`] = day.slots[1]?.openingTime || null;
+        timings[`${prefix}_slot2_end`] = day.slots[1]?.closingTime || null;
+        timings[`${prefix}_total_duration`] = day.is24Hours ? '24:00' : `${day.operationalHours}:${day.operationalMinutes.toString().padStart(2, '0')}`;
+      });
+    }
+    
+    try {
+      const res = await fetch('/api/outlet-timings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(timings),
+      });
+      
+      if (res.ok) {
+        toast.success('✅ Store timings saved successfully!');
+      } else {
+        const data = await res.json();
+        toast.error('Failed to save timings: ' + (data.error || 'Unknown error'));
+      }
+    } catch (err: any) {
+      toast.error('Failed to save timings: ' + err.message);
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   const formatTimeForDisplay = (time: string) => {
@@ -476,22 +701,84 @@ function StoreSettingsContent() {
     
     setStoreSchedule(finalSchedule)
     setClosedDay(day)
+    
+    // Disable same for all and 24 hours when a day is closed
+    setApplyMondayToAll(false);
+    setForce24Hours(false);
+    
     toast.success(`Outlet closed on ${day.toUpperCase()}`)
   }
 
-  const toggle24HoursForAll = () => {
-    const all24Hours = storeSchedule.every(d => d.is24Hours)
-    setStoreSchedule(prev => prev.map(d => ({
-      ...d,
-      is24Hours: !all24Hours,
-      isOutletClosed: false,
-      slots: [],
-      duration: !all24Hours ? '24.0 hrs' : '14.0 hrs',
-      operationalHours: !all24Hours ? 24 : 14,
-      operationalMinutes: 0
-    })))
-    setClosedDay(null)
-    toast.success(!all24Hours ? '24 hours enabled for all days' : '24 hours disabled for all days')
+  const toggle24HoursForAll = async () => {
+    const newForce24Hours = !force24Hours;
+    
+    if (newForce24Hours) {
+      // Set all days to 24 hours (00:00-00:00)
+      const newSchedule = storeSchedule.map(d => ({
+        ...d,
+        is24Hours: true,
+        isOutletClosed: false,
+        isOpen: true,
+        slots: [{ id: '1', openingTime: '00:00', closingTime: '00:00' }],
+        duration: '24.0 hrs',
+        operationalHours: 24,
+        operationalMinutes: 0
+      }));
+      
+      setStoreSchedule(newSchedule);
+      setClosedDay(null);
+      setApplyMondayToAll(true); // Auto-enable same for all
+      setForce24Hours(true);
+      
+      toast.success('24 hours enabled for all days');
+    } else {
+      // Disable 24 hours for all
+      setForce24Hours(false);
+      // Don't reset schedule, let user modify individually
+      toast.success('24 hours disabled for all days');
+    }
+  }
+
+  const toggleSameForAllDays = () => {
+    const newSameForAll = !applyMondayToAll;
+    
+    if (newSameForAll) {
+      const monday = storeSchedule.find(d => d.day === 'monday');
+      if (monday) {
+        setStoreSchedule(prev =>
+          prev.map(d => ({
+            ...d,
+            slots: monday.slots,
+            is24Hours: monday.is24Hours,
+            isOutletClosed: monday.isOutletClosed,
+            isOpen: monday.isOpen,
+            duration: monday.duration,
+            operationalHours: monday.operationalHours,
+            operationalMinutes: monday.operationalMinutes
+          }))
+        );
+        
+        // If Monday is closed, set closed day
+        if (monday.isOutletClosed) {
+          setClosedDay('monday');
+        } else {
+          setClosedDay(null);
+        }
+        
+        // If Monday is 24 hours, enable force24Hours
+        if (monday.is24Hours) {
+          setForce24Hours(true);
+        } else {
+          setForce24Hours(false);
+        }
+      }
+      
+      setApplyMondayToAll(true);
+      toast.success('Same timings applied to all days');
+    } else {
+      setApplyMondayToAll(false);
+      toast.success('Same timings disabled');
+    }
   }
 
   const handleViewStore = () => {
@@ -1200,23 +1487,7 @@ function StoreSettingsContent() {
                         <input
                           type="checkbox"
                           checked={applyMondayToAll}
-                          onChange={(e) => {
-                            const checked = e.target.checked
-                            setApplyMondayToAll(checked)
-                            if (checked) {
-                              const monday = storeSchedule.find(d => d.day === 'monday')
-                              if (monday) {
-                                setStoreSchedule(prev =>
-                                  prev.map(d => ({
-                                    ...d,
-                                    slots: monday.slots,
-                                    is24Hours: monday.is24Hours,
-                                    isOutletClosed: monday.isOutletClosed
-                                  }))
-                                )
-                              }
-                            }
-                          }}
+                          onChange={toggleSameForAllDays}
                           className="sr-only"
                         />
                         <div className={`w-9 h-5 rounded-full transition-colors ${applyMondayToAll ? 'bg-blue-600' : 'bg-gray-300'}`}>
@@ -1233,12 +1504,12 @@ function StoreSettingsContent() {
                       <label className="relative inline-flex items-center cursor-pointer">
                         <input
                           type="checkbox"
-                          checked={storeSchedule.every(d => d.is24Hours)}
+                          checked={force24Hours}
                           onChange={toggle24HoursForAll}
                           className="sr-only"
                         />
-                        <div className={`w-9 h-5 rounded-full transition-colors ${storeSchedule.every(d => d.is24Hours) ? 'bg-blue-600' : 'bg-gray-300'}`}>
-                          <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${storeSchedule.every(d => d.is24Hours) ? 'translate-x-4' : ''}`} />
+                        <div className={`w-9 h-5 rounded-full transition-colors ${force24Hours ? 'bg-blue-600' : 'bg-gray-300'}`}>
+                          <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${force24Hours ? 'translate-x-4' : ''}`} />
                         </div>
                       </label>
                     </div>
@@ -1255,6 +1526,7 @@ function StoreSettingsContent() {
                           if (value) {
                             handleClosedDayChange(value)
                           } else {
+                            // Reset closed day
                             setStoreSchedule(prev =>
                               prev.map(d => ({ ...d, isOutletClosed: false }))
                             )
@@ -1296,7 +1568,7 @@ function StoreSettingsContent() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                   {storeSchedule.map((daySchedule) => (
                     <div key={daySchedule.day} className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-all">
-                      {/* Day Header */}
+                      {/* Day Header with Open Store Toggle */}
                       <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-2">
                           <div className={`w-8 h-8 rounded-md flex items-center justify-center ${
@@ -1317,6 +1589,16 @@ function StoreSettingsContent() {
                             <p className="text-xs text-gray-500">{daySchedule.duration}</p>
                           </div>
                         </div>
+                        {/* Open Store Toggle */}
+                        <label className="relative inline-flex items-center cursor-pointer ml-2">
+                          <input
+                            type="checkbox"
+                            checked={daySchedule.isOpen && !daySchedule.isOutletClosed}
+                            onChange={() => handleDayToggle(daySchedule.day)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-8 h-4 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-600"></div>
+                        </label>
                       </div>
 
                       {/* Status Badge */}
@@ -1416,7 +1698,7 @@ function StoreSettingsContent() {
                                 checked={daySchedule.is24Hours}
                                 onChange={() => handle24HoursToggle(daySchedule.day)}
                                 className="sr-only peer"
-                              />
+                                                           />
                               <div className="w-8 h-4 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600"></div>
                             </label>
                           </div>
@@ -1462,10 +1744,11 @@ function StoreSettingsContent() {
                 <div className="sticky bottom-4 bg-white rounded-xl border border-gray-200 p-4 shadow-lg">
                   <button
                     onClick={saveStoreTimings}
-                    className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 transition-all font-semibold"
+                    disabled={isSaving}
+                    className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 transition-all font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Save size={18} />
-                    Save All Outlet Timings
+                    {isSaving ? 'Saving...' : 'Save All Outlet Timings'}
                   </button>
                 </div>
               </div>
@@ -1538,6 +1821,4 @@ function StoreSettingsContent() {
   )
 }
 
-export default function StoreSettingsPage() {
-  return <StoreSettingsContent />
-}
+export default StoreSettingsContent
