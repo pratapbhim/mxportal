@@ -27,6 +27,13 @@ export default function LoginStorePage() {
       setLoginModalOpen(false);
       return;
     }
+    // If onboardingProgress exists, resume onboarding for this parent
+    if (data.onboardingProgress && !data.onboardingProgress.store_id) {
+      // Not yet completed, resume onboarding
+      router.push(`/auth/register-store?parent_id=${data.onboardingProgress.parent_id}`);
+      setLoginModalOpen(false);
+      return;
+    }
     if (data.stores && data.stores.length === 1) {
       console.log('DEBUG: Single child store found, redirecting to dashboard:', data.stores[0]);
       localStorage.setItem('selectedStoreId', data.stores[0].store_id);

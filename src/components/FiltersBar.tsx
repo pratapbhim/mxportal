@@ -1,5 +1,5 @@
-'use client'
-
+"use client";
+import React from 'react';
 import { useState } from 'react'
 import { OrderStatus } from '@/lib/types'
 import { ORDER_STATUS_CONFIG } from '@/lib/constants'

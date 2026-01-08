@@ -88,7 +88,7 @@ export default function AuthHome() {
               <Link href="/auth/register-phone">
                 <button
                   onClick={() => setIsLoading(true)}
-                  className="w-full group relative overflow-hidden rounded-2xl py-6 px-8 font-semibold text-white text-lg transition-all duration-300 hover:shadow-2xl"
+                  className="w-full group relative overflow-hidden rounded-2xl py-6 px-8 font-semibold text-white text-lg transition-all duration-300 hover:shadow-2xl cursor-pointer"
                 >
                   <div className="absolute inset-0 bg-gradient-to-r from-blue-600 to-blue-700 group-hover:from-blue-700 group-hover:to-blue-800 transition-all"></div>
                   <div className="absolute inset-0 bg-gradient-to-r from-purple-600 to-pink-600 opacity-0 group-hover:opacity-100 transition-all"></div>
@@ -105,7 +105,7 @@ export default function AuthHome() {
             <div className="w-full max-w-xl">
               <Link href="/auth/login-store">
                 <button
-                  className="w-full group relative overflow-hidden rounded-2xl py-6 px-8 font-semibold text-lg transition-all duration-300 border-2 border-blue-600 hover:bg-blue-50 hover:border-blue-700 hover:shadow-lg"
+                  className="w-full group relative overflow-hidden rounded-2xl py-6 px-8 font-semibold text-lg transition-all duration-300 border-2 border-blue-600 hover:bg-blue-50 hover:border-blue-700 hover:shadow-lg cursor-pointer"
                 >
                   <div className="relative flex items-center justify-between text-blue-600 group-hover:text-blue-700">
                     <span className="flex items-center gap-2">

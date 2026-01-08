@@ -37,10 +37,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch stores' }, { status: 500 });
     }
 
-    // Return parentExists and store list
+    // Check for pending onboarding progress for this parent
+    const { data: progress, error: progressError } = await supabase
+      .from('store_registration_progress')
+      .select('*')
+      .eq('parent_id', parent.id)
+      .single();
+
+    // Return parentExists, store list, and onboarding progress (if any)
     return NextResponse.json({
       parentExists: true,
-      stores: stores || []
+      stores: stores || [],
+      onboardingProgress: progress || null
     });
   } catch (e) {
     return NextResponse.json({ error: 'Internal error' }, { status: 500 });
