@@ -25,15 +25,15 @@ export interface MerchantStore {
 }
 
 export const fetchStoresByManager = async (am_mobile: string): Promise<MerchantStore[]> => {
-  console.log('DEBUG: Querying merchant_store for am_mobile:', am_mobile);
+  console.log('DEBUG: Querying merchant_stores for am_mobile:', am_mobile);
   const { data, error } = await supabase
-    .from('merchant_store')
+    .from('merchant_stores')
     .select('*')
     .eq('am_mobile', am_mobile);
   if (error) {
     console.error('Error fetching stores for manager:', error, JSON.stringify(error));
     // Try fallback: fetch all stores to debug RLS or data issues
-    const fallback = await supabase.from('merchant_store').select('*').limit(5);
+    const fallback = await supabase.from('merchant_stores').select('*').limit(5);
     console.log('DEBUG: Fallback fetch all stores:', fallback.data, fallback.error);
     return [];
   }

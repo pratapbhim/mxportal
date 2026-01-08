@@ -51,7 +51,9 @@ export async function POST(req: NextRequest) {
         is_pure_veg: storeSetup.is_pure_veg,
         accepts_online_payment: storeSetup.accepts_online_payment,
         accepts_cash: storeSetup.accepts_cash,
-        status: 'PENDING', // Set default status for child store (valid enum value)
+        operational_status: 'INACTIVE', // Set operational_status to INACTIVE after registration
+        approval_status: 'PENDING', // Set approval_status to PENDING
+        store_type: step1.store_type || null, // Save store_type if provided
       }])
       .select()
       .single();
@@ -120,6 +122,7 @@ export async function POST(req: NextRequest) {
         document_type: typeMap[doc.type] || doc.type,
         document_url: doc.url, // Only signed URL is saved
         document_name: doc.name,
+        document_number: doc.number || null,
         is_verified: false,
       }));
       const { error: docError } = await supabaseAdmin

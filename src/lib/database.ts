@@ -11,7 +11,7 @@ import { MerchantStore } from './types'
 export const fetchStoreById = async (storeId: string): Promise<MerchantStore | null> => {
   try {
     const { data, error } = await supabase
-      .from('merchant_store')
+       .from('merchant_stores')
       .select('*')
       .eq('store_id', storeId)
       .single();
@@ -26,7 +26,7 @@ export const fetchStoreById = async (storeId: string): Promise<MerchantStore | n
 export const fetchStoreByName = async (storeName: string): Promise<MerchantStore | null> => {
   try {
     const { data, error } = await supabase
-      .from('merchant_store')
+       .from('merchant_stores')
       .select('*')
       .ilike('store_name', `%${storeName}%`)
       .single();
@@ -44,7 +44,7 @@ export const fetchStoreByName = async (storeName: string): Promise<MerchantStore
 export const fetchAllStores = async (): Promise<MerchantStore[]> => {
   try {
     const { data, error } = await supabase
-      .from('merchant_store')
+      .from('merchant_stores')
       .select('*')
       .order('created_at', { ascending: false });
     if (error) throw error;
@@ -65,7 +65,7 @@ export const registerStore = async (store: Partial<MerchantStore>): Promise<{ da
       }
     }
     const { data, error } = await supabase
-      .from('merchant_store')
+      .from('merchant_stores')
       .insert([store])
       .select()
       .single();
@@ -79,7 +79,7 @@ export const registerStore = async (store: Partial<MerchantStore>): Promise<{ da
 export const updateStoreInfo = async (storeId: string, updates: Partial<MerchantStore>): Promise<boolean> => {
   try {
     const { error } = await supabase
-      .from('merchant_store')
+        .from('merchant_stores')
       .update({
         ...updates,
         updated_at: new Date().toISOString(),
@@ -126,7 +126,7 @@ export const fetchActiveOffers = async (storeId: string): Promise<Offer[]> => {
   try {
     // Resolve bigint id from merchant_store
     const { data: storeData, error: storeError } = await supabase
-      .from('merchant_store')
+      .from('merchant_stores')
       .select('id')
       .eq('store_id', storeId)
       .single();
@@ -153,7 +153,7 @@ export async function fetchAllOffers(storeId: string): Promise<Offer[]> {
   try {
     // Get store's internal ID (bigint) from store_id (text)
     const { data: storeData, error: storeError } = await supabase
-      .from('merchant_store')
+      .from('merchant_stores')
       .select('id')
       .eq('store_id', storeId)
       .single();
@@ -196,7 +196,7 @@ export async function createOffer(offerData: any): Promise<Offer | null> {
       storeBigIntId = offerData.store_id;
     } else if (typeof offerData.store_id === 'string') {
       const { data: storeData, error: storeError, status } = await supabase
-        .from('merchant_store')
+        .from('merchant_stores')
         .select('id')
         .eq('store_id', offerData.store_id)
         .single();
@@ -395,7 +395,7 @@ export const fetchMenuItems = async (storeId: string) => {
   try {
     // First get the store's internal ID (bigint) from the store_id (text)
     const { data: storeData, error: storeError } = await supabase
-      .from('merchant_store')
+      .from('merchant_stores')
       .select('id')
       .eq('store_id', storeId)
       .single();

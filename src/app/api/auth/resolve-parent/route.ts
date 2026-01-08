@@ -13,9 +13,9 @@ export async function POST(req: NextRequest) {
     const normalized = digits.length > 10 ? digits.slice(-10) : digits;
     console.log("Normalized phone for query:", normalized);
 
-    // Query merchant_parent by registered_phone_normalized
+    // Query merchant_parents by registered_phone_normalized
     const { data: parent, error: parentError } = await supabase
-      .from('merchant_parent')
+      .from('merchant_parents')
       .select('*')
       .eq('registered_phone_normalized', normalized)
       .single();
@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
 
     // Fetch child stores for this parent
     const { data: stores, error: storesError } = await supabase
-      .from('merchant_store')
+      .from('merchant_stores')
       .select('store_id, store_name, full_address, store_phones, approval_status, is_active')
       .eq('parent_id', parent.id);
 

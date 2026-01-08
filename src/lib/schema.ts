@@ -1,4 +1,4 @@
-export const merchant_store = pgTable('merchant_store', {
+export const merchant_store = pgTable('merchant_stores', {
   id: bigint('id', { mode: 'number' }).primaryKey(),
   store_id: text('store_id').notNull(),
   parent_id: bigint('parent_id', { mode: 'number' }),

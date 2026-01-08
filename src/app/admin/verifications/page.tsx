@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import AdminLayout from '../../../components/AdminLayout';
 import { fetchAllStores, updateStoreInfo } from '@/lib/database';
+import { fetchStoreDocuments, fetchStoreOperatingHours } from '@/lib/adminStore';
 import Image from 'next/image';
 
 const statusColors = {
@@ -20,6 +21,8 @@ export default function VerificationsPage() {
   const [rejectModal, setRejectModal] = useState<{ open: boolean; storeId?: string; store?: any }>({ open: false });
   const [rejectReason, setRejectReason] = useState('');
   const [viewModal, setViewModal] = useState<{ open: boolean; store?: any }>({ open: false });
+  const [storeDocuments, setStoreDocuments] = useState<any[]>([]);
+  const [operatingHours, setOperatingHours] = useState<any[]>([]);
   const [approveModal, setApproveModal] = useState<{ open: boolean; storeId?: string; store?: any }>({ open: false });
   const viewModalRef = useRef<HTMLDivElement>(null);
   const approveModalRef = useRef<HTMLDivElement>(null);
@@ -112,14 +115,10 @@ export default function VerificationsPage() {
       // Only update status if it's currently SUBMITTED
       if (store.approval_status === 'SUBMITTED') {
         setLoading(true);
-        
-        // Update status in database
         await updateStoreInfo(store.store_id, { 
           approval_status: 'UNDER_VERIFICATION',
           updated_at: new Date().toISOString()
         });
-        
-        // Update local state
         setStores(prevStores => 
           prevStores.map(s => 
             s.id === store.id 
@@ -127,16 +126,20 @@ export default function VerificationsPage() {
               : s
           )
         );
-        
         setLoading(false);
       }
-      
+      // Fetch documents and operating hours
+      setLoading(true);
+      const docs = await fetchStoreDocuments(store.id);
+      const hours = await fetchStoreOperatingHours(store.id);
+      setStoreDocuments(docs);
+      setOperatingHours(hours);
+      setLoading(false);
       // Open view modal
       setViewModal({ open: true, store: {
         ...store,
         approval_status: store.approval_status === 'SUBMITTED' ? 'UNDER_VERIFICATION' : store.approval_status
       }});
-      
     } catch (error) {
       console.error('Error updating status:', error);
       setLoading(false);
@@ -520,44 +523,55 @@ export default function VerificationsPage() {
                     <div className="bg-gray-50 p-4 rounded-lg">
                       <h3 className="text-lg font-semibold text-gray-900 mb-4">Legal Documents</h3>
                       <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="text-xs font-medium text-gray-500">GST Number</label>
-                          <p className="mt-1 text-sm text-gray-900">{viewModal.store.gst_number || '-'}</p>
-                        </div>
-                        <div>
-                          <label className="text-xs font-medium text-gray-500">PAN Number</label>
-                          <p className="mt-1 text-sm text-gray-900">{viewModal.store.pan_number}</p>
-                        </div>
-                        <div>
-                          <label className="text-xs font-medium text-gray-500">Aadhar Number</label>
-                          <p className="mt-1 text-sm text-gray-900">{viewModal.store.aadhar_number}</p>
-                        </div>
-                        <div>
-                          <label className="text-xs font-medium text-gray-500">FSSAI Number</label>
-                          <p className="mt-1 text-sm text-gray-900">{viewModal.store.fssai_number || '-'}</p>
-                        </div>
+                        {storeDocuments.length === 0 ? (
+                          <div className="col-span-2 text-gray-500">No documents found.</div>
+                        ) : (
+                          storeDocuments.map((doc, idx) => (
+                            <div key={doc.id || idx} className="col-span-2 border-b pb-2 mb-2">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <span className="font-medium text-gray-700">{doc.document_type}</span>
+                                  <span className="ml-2 text-xs text-gray-500">{doc.document_number || ''}</span>
+                                </div>
+                                <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${doc.is_verified ? 'bg-emerald-100 text-emerald-700' : 'bg-orange-100 text-orange-700'}`}>
+                                  {doc.is_verified ? 'Verified' : 'Pending'}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2 mt-1">
+                                <a href={doc.document_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline text-xs">View Document</a>
+                                {doc.rejection_reason && <span className="text-xs text-red-500 ml-2">Rejected: {doc.rejection_reason}</span>}
+                              </div>
+                            </div>
+                          ))
+                        )}
                       </div>
                     </div>
 
                     <div className="bg-gray-50 p-4 rounded-lg">
-                      <h3 className="text-lg font-semibold text-gray-900 mb-4">Bank Details</h3>
+                      <h3 className="text-lg font-semibold text-gray-900 mb-4">Operating Hours</h3>
                       <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="text-xs font-medium text-gray-500">Account Holder</label>
-                          <p className="mt-1 text-sm text-gray-900">{viewModal.store.bank_account_holder}</p>
-                        </div>
-                        <div>
-                          <label className="text-xs font-medium text-gray-500">Account Number</label>
-                          <p className="mt-1 text-sm text-gray-900">{viewModal.store.bank_account_number}</p>
-                        </div>
-                        <div>
-                          <label className="text-xs font-medium text-gray-500">Bank Name</label>
-                          <p className="mt-1 text-sm text-gray-900">{viewModal.store.bank_name}</p>
-                        </div>
-                        <div>
-                          <label className="text-xs font-medium text-gray-500">IFSC Code</label>
-                          <p className="mt-1 text-sm text-gray-900">{viewModal.store.bank_ifsc}</p>
-                        </div>
+                        {operatingHours.length === 0 ? (
+                          <div className="col-span-2 text-gray-500">No operating hours found.</div>
+                        ) : (
+                          operatingHours.map((hour, idx) => (
+                            <div key={hour.id || idx} className="col-span-2 border-b pb-2 mb-2">
+                              <div className="flex items-center justify-between">
+                                <span className="font-medium text-gray-700">{hour.day_of_week}</span>
+                                <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${hour.is_open ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                                  {hour.is_open ? 'Open' : 'Closed'}
+                                </span>
+                              </div>
+                              <div className="text-xs text-gray-600 mt-1">
+                                Slot 1: {hour.slot1_start || '-'} - {hour.slot1_end || '-'}
+                                {hour.slot2_start && hour.slot2_end && (
+                                  <>
+                                    <br />Slot 2: {hour.slot2_start} - {hour.slot2_end}
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          ))
+                        )}
                       </div>
                     </div>
                   </div>
