@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { LoginModal, StoreSelectionList } from "@/components";
+import { signIn } from "next-auth/react";
 
 export default function LoginStorePage() {
   const [loginModalOpen, setLoginModalOpen] = useState(true);
@@ -52,7 +53,7 @@ export default function LoginStorePage() {
 
   // Handler for Google login (Agent flow)
   const handleGoogleLogin = () => {
-    router.push("/auth/search");
+    signIn("google", { callbackUrl: "/auth/search" });
     setLoginModalOpen(false);
   };
 

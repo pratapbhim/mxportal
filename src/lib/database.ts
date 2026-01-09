@@ -1,3 +1,20 @@
+// Count stores by operational_status for verification page
+export const fetchVerificationStatusCounts = async () => {
+  const { data, error } = await supabase
+    .from('merchant_stores')
+    .select('approval_status')
+    .is('deleted_at', null);
+  if (error) {
+    console.error('Error fetching verification status counts:', error);
+    return { pending: 0, underReview: 0 };
+  }
+  let pending = 0, underReview = 0;
+  (data || []).forEach((row: any) => {
+    if (row.approval_status === 'DRAFT' || row.approval_status === 'SUBMITTED') pending++;
+    if (row.approval_status === 'UNDER_VERIFICATION') underReview++;
+  });
+  return { pending, underReview };
+};
 // src/lib/database.ts
 
 import { supabase } from './supabase'
@@ -78,8 +95,8 @@ export const registerStore = async (store: Partial<MerchantStore>): Promise<{ da
 
 export const updateStoreInfo = async (storeId: string, updates: Partial<MerchantStore>): Promise<boolean> => {
   try {
-    const { error } = await supabase
-        .from('merchant_stores')
+    const { error } = await supabaseAdmin
+      .from('merchant_stores')
       .update({
         ...updates,
         updated_at: new Date().toISOString(),
@@ -87,9 +104,30 @@ export const updateStoreInfo = async (storeId: string, updates: Partial<Merchant
       .eq('store_id', storeId);
     if (error) throw error;
     return true;
-  } catch (error) {
-    console.error('Error updating store:', error);
+  } catch (error: any) {
+    // Log more details for debugging
+    console.error('Error updating store:', {
+      message: error?.message,
+      stack: error?.stack,
+      error
+    });
     return false;
+  }
+}
+
+// Fetch operating hours for a store
+export const fetchStoreOperatingHours = async (storeId: string) => {
+  try {
+    const { data, error } = await supabase
+      .from('merchant_store_operating_hours')
+      .select('*')
+      .eq('store_id', storeId)
+      .order('day_of_week', { ascending: true });
+    if (error) throw error;
+    return data;
+  } catch (error) {
+    console.error('Error fetching operating hours:', error);
+    return [];
   }
 }
 
@@ -1071,14 +1109,12 @@ export const fetchRestaurantByName = fetchStoreByName;
 // Legacy function for dashboard compatibility
 export const fetchManagedStores = async (fromDate?: string, toDate?: string) => {
   let query = supabase
-    .from('merchant_store')
+    .from('merchant_stores')
     .select('*')
     .in('approval_status', ['APPROVED', 'REJECTED'])
     .order('created_at', { ascending: false });
-    
   if (fromDate) query = query.gte('created_at', fromDate + 'T00:00:00');
   if (toDate) query = query.lte('created_at', toDate + 'T23:59:59');
-  
   const { data, error } = await query;
   if (error) {
     console.error('Error fetching managed stores:', error);
@@ -1087,29 +1123,48 @@ export const fetchManagedStores = async (fromDate?: string, toDate?: string) => 
   return data || [];
 };
 
+// Fetch documents for a store
+export const fetchStoreDocuments = async (storeId: number) => {
+  const { data, error } = await supabase
+    .from('merchant_store_documents')
+    .select('*')
+    .eq('store_id', storeId)
+    .order('created_at', { ascending: false });
+  if (error) {
+    console.error('Error fetching store documents:', error);
+    return [];
+  }
+  return data || [];
+};
+
 export const fetchStoreCounts = async (fromDate?: string, toDate?: string) => {
   let query = supabase
-    .from('merchant_store')
-    .select('approval_status, created_at', { count: 'exact', head: false });
-    
+    .from('merchant_stores')
+    .select('approval_status, created_at, deleted_at', { count: 'exact', head: false });
+
   if (fromDate) query = query.gte('created_at', fromDate + 'T00:00:00');
   if (toDate) query = query.lte('created_at', toDate + 'T23:59:59');
-  
+
   const { data, error } = await query;
+  console.log('Raw store data:', data); // Debug output
   if (error) {
     console.error('Error fetching store counts:', error);
-    return { total: 0, pending: 0, verified: 0, rejected: 0 };
+    return { total: 0, pending: 0, verified: 0, rejected: 0, suspended: 0, blocked: 0 };
   }
-  
-  let total = 0, pending = 0, verified = 0, rejected = 0;
+
+  let total = 0, pending = 0, verified = 0, rejected = 0, suspended = 0, blocked = 0;
   (data || []).forEach((row: any) => {
-    total++;
-    if (row.approval_status === 'APPROVED') verified++;
-    else if (row.approval_status === 'REJECTED') rejected++;
-    else pending++;
+    if (!row.deleted_at) {
+      total++;
+      if (row.approval_status === 'APPROVED') verified++;
+      else if (row.approval_status === 'REJECTED') rejected++;
+      else if (row.approval_status === 'SUSPENDED') suspended++;
+      else if (row.approval_status === 'BLOCKED') blocked++;
+      else pending++;
+    }
   });
-  
-  return { total, pending, verified, rejected };
+
+  return { total, pending, verified, rejected, suspended, blocked };
 };
 
 // ============================================
@@ -1221,7 +1276,3 @@ export interface MerchantStore {
   updated_at: string;
 }
 */
-
-
-
-

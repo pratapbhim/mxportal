@@ -5,6 +5,8 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { step1, step2, storeSetup, documents, logoUrl, bannerUrl, galleryUrls, documentUrls, parentInfo } = body;
+  // If store_type is OTHERS, save custom type in store_type
+  const storeTypeValue = step1.store_type === 'OTHERS' ? step1.custom_store_type : step1.store_type;
 
     // Always use parentInfo.id (numeric) for parent_id
     const parentId = parentInfo?.id;
@@ -51,9 +53,13 @@ export async function POST(req: NextRequest) {
         is_pure_veg: storeSetup.is_pure_veg,
         accepts_online_payment: storeSetup.accepts_online_payment,
         accepts_cash: storeSetup.accepts_cash,
-        operational_status: 'INACTIVE', // Set operational_status to INACTIVE after registration
-        approval_status: 'PENDING', // Set approval_status to PENDING
-        store_type: step1.store_type || null, // Save store_type if provided
+        status: 'INACTIVE', // Always default to INACTIVE
+        approval_status: 'SUBMITTED', // Always default to SUBMITTED
+        store_type: storeTypeValue,
+        is_active: false, // Always set inactive by default
+        is_accepting_orders: false, // Always set false by default
+        is_available: false, // Always set false by default
+        operational_status: 'INACTIVE', // Always default to INACTIVE
       }])
       .select()
       .single();

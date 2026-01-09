@@ -112,4 +112,76 @@ export default function AnalyticsPage() {
       </div>
     </AdminLayout>
   );
+  return (
+    <AdminLayout>
+      <div className="min-h-screen bg-white px-8 py-8">
+        <h1 className="text-2xl font-bold mb-6 text-gray-900">Sales & Analytics</h1>
+        <div className="flex gap-4 mb-6">
+          <select
+            value={period}
+            onChange={(e) => setPeriod(e.target.value)}
+            className="px-4 py-2 border rounded-lg bg-white shadow-sm"
+          >
+            <option value="day">Daily</option>
+            <option value="week">Weekly</option>
+            <option value="month">Monthly</option>
+          </select>
+        </div>
+        {/* Sales Trend Chart (table for now) */}
+        <div className="mb-8">
+          <h2 className="text-lg font-semibold mb-2 text-gray-900">Sales Trend</h2>
+          {loading ? (
+            <div className="text-gray-400 py-8 text-center">Loading...</div>
+          ) : salesTrend.length === 0 ? (
+            <div className="text-gray-700 py-8 text-center">No sales data available.</div>
+          ) : (
+            <table className="min-w-full bg-white rounded-lg shadow border">
+              <thead>
+                <tr className="bg-gray-50 border-b">
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Date</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Total Sales</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Active Stores</th>
+                </tr>
+              </thead>
+              <tbody>
+                {salesTrend.map((row) => (
+                  <tr key={row.date} className="border-b hover:bg-gray-50">
+                    <td className="px-4 py-3 text-gray-900 font-semibold">{row.date}</td>
+                    <td className="px-4 py-3 text-purple-700 font-bold">₹{row.total.toLocaleString('en-IN')}</td>
+                    <td className="px-4 py-3 text-gray-700">{row.stores}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+        {/* Store-wise Sales Table */}
+        <div>
+          <h2 className="text-lg font-semibold mb-2 text-gray-900">Store-wise Sales</h2>
+          {loading ? (
+            <div className="text-gray-400 py-8 text-center">Loading...</div>
+          ) : storeSales.length === 0 ? (
+            <div className="text-gray-700 py-8 text-center">No store sales data available.</div>
+          ) : (
+            <table className="min-w-full bg-white rounded-lg shadow border">
+              <thead>
+                <tr className="bg-gray-50 border-b">
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Store</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Sales</th>
+                </tr>
+              </thead>
+              <tbody>
+                {storeSales.map((row) => (
+                  <tr key={row.store} className="border-b hover:bg-gray-50">
+                    <td className="px-4 py-3 text-gray-900 font-semibold">{row.store}</td>
+                    <td className="px-4 py-3 text-purple-700 font-bold">₹{row.sales.toLocaleString('en-IN')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </AdminLayout>
+  );
 }

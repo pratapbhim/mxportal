@@ -1,12 +1,13 @@
 'use client'
-
+import { useSession } from "next-auth/react";
 import { useState, useEffect } from 'react'
 import { Dialog } from '@headlessui/react';
 import { useRouter } from 'next/navigation'
-import { ChefHat, ArrowLeft, Search, MapPin, Star, Loader, AlertCircle } from 'lucide-react'
+import { ChefHat, ArrowLeft, Search, MapPin, Star, Loader, AlertCircle, User } from 'lucide-react'
 import { toast } from 'sonner'
 import { fetchAllStores } from '@/lib/database'
 import { searchMerchantStore } from '@/lib/searchStore'
+import Image from 'next/image'
 
 interface Restaurant {
   id: number
@@ -21,30 +22,42 @@ interface Restaurant {
 }
 
 export default function SearchPage() {
-    const [modalOpen, setModalOpen] = useState(false);
-    const [modalStatus, setModalStatus] = useState<{ status: string; reason?: string }>({ status: '', reason: '' });
-  const router = useRouter()
-  const [restaurants, setRestaurants] = useState<Restaurant[]>([])
-  const [filteredRestaurants, setFilteredRestaurants] = useState<Restaurant[]>([])
+  const { data: session, status } = useSession();
+  const router = useRouter();
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalStatus, setModalStatus] = useState<{ status: string; reason?: string }>({ status: '', reason: '' });
+  const [stores, setStores] = useState<any[]>([])
+  const [filteredStores, setFilteredStores] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [searchType, setSearchType] = useState('merchant_id') // 'merchant_id' or 'mobile'
   const [hasSearched, setHasSearched] = useState(false)
+  const [isRedirecting, setIsRedirecting] = useState(false)
+
+  // ALL HOOKS MUST BE CALLED UNCONDITIONALLY AND IN THE SAME ORDER
+  useEffect(() => {
+    if (status === "unauthenticated") {
+      setIsRedirecting(true);
+      router.push("/auth/login-store");
+    }
+  }, [status, router]);
 
   // Load restaurants from Supabase on component mount
   useEffect(() => {
-    const loadRestaurants = async () => {
+    const loadStores = async () => {
       try {
         const data = await fetchAllStores()
-        setRestaurants(data)
+        setStores(data)
       } catch (err) {
-        console.error('Error loading restaurants:', err)
+        console.error('Error loading stores:', err)
       }
     }
 
-    loadRestaurants()
-  }, [])
+    if (status === "authenticated") {
+      loadStores()
+    }
+  }, [status])
 
   // Handle search button click
   const handleSearch = async () => {
@@ -57,11 +70,16 @@ export default function SearchPage() {
     let filtered: any[] = []
     try {
       if (searchType === 'merchant_id') {
-        filtered = await searchMerchantStore(searchQuery.trim(), 'mx_id')
+        filtered = stores.filter(store =>
+          store.store_id?.toUpperCase().includes(searchQuery.trim().toUpperCase()) ||
+          store.store_name?.toUpperCase().includes(searchQuery.trim().toUpperCase())
+        )
       } else if (searchType === 'mobile') {
-        filtered = await searchMerchantStore(searchQuery.trim(), 'mobile')
+        filtered = stores.filter(store =>
+          store.phone?.includes(searchQuery.trim())
+        )
       }
-      setFilteredRestaurants(filtered)
+      setFilteredStores(filtered)
       setHasSearched(true)
       if (filtered.length === 0) {
         setError('No stores matching your search were found. Please check your details and try again, or contact support if you need further assistance.')
@@ -82,7 +100,7 @@ export default function SearchPage() {
     try {
       const res = await fetch(`/api/store-status?store_id=${storeId}`);
       const data = await res.json();
-      console.log('DEBUG approval_status:', data.approval_status); // Debug log
+      console.log('DEBUG approval_status:', data.approval_status);
       // Always set correct key and redirect, let dashboard handle modal
       localStorage.setItem('selectedStoreId', storeId);
       router.push('/mx/dashboard');
@@ -91,30 +109,31 @@ export default function SearchPage() {
       setModalOpen(true);
     }
   }
-      {/* Modal for status */}
-      <Dialog open={modalOpen} onClose={() => setModalOpen(false)} className="fixed z-50 inset-0 overflow-y-auto">
-        <div className="flex items-center justify-center min-h-screen px-4">
-          <Dialog.Overlay className="fixed inset-0 bg-black opacity-30" />
-          <div className="relative bg-white rounded-lg max-w-md mx-auto p-8 shadow-xl z-10">
-            <Dialog.Title className="text-lg font-bold mb-2">Store Status</Dialog.Title>
-            <div className="mb-4">
-              {modalStatus.status === 'SUBMITTED' && <span className="text-blue-600 font-semibold">Your store is submitted and under review.</span>}
-              {modalStatus.status === 'UNDER_VERIFICATION' && <span className="text-yellow-600 font-semibold">Your store is under verification.</span>}
-              {modalStatus.status === 'REJECTED' && <span className="text-red-600 font-semibold">Your store registration was rejected.</span>}
-              {modalStatus.status === 'ERROR' && <span className="text-red-600 font-semibold">{modalStatus.reason}</span>}
-              {/* Fallback for unknown status */}
-              {modalStatus.status && !['SUBMITTED','UNDER_VERIFICATION','REJECTED','ERROR'].includes(modalStatus.status) && (
-                <span className="text-gray-700 font-semibold">Store status: {modalStatus.status}{modalStatus.reason ? ` - ${modalStatus.reason}` : ''}</span>
-              )}
-              {modalStatus.reason && modalStatus.status === 'REJECTED' && (
-                <div className="mt-2 text-sm text-gray-700">Reason: {modalStatus.reason}</div>
-              )}
-            </div>
-            <button onClick={() => setModalOpen(false)} className="px-4 py-2 bg-blue-600 text-white rounded-lg">Close</button>
-          </div>
-        </div>
-      </Dialog>
 
+  const handleLogout = async () => {
+    // Implement logout logic here
+    // For next-auth: signOut()
+    router.push('/auth/login-store');
+  }
+
+  // Show loading state
+  if (status === "loading" || isRedirecting) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-blue-50 to-purple-50">
+        <div className="text-center">
+          <Loader className="w-8 h-8 animate-spin mx-auto text-blue-600 mb-4" />
+          <p className="text-slate-600">Loading authentication...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show nothing if unauthenticated (will redirect)
+  if (status === "unauthenticated") {
+    return null;
+  }
+
+  // Only render the page if authenticated
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-purple-50">
       {/* Header */}
@@ -130,7 +149,41 @@ export default function SearchPage() {
           <ChefHat className="w-6 h-6 text-blue-600" />
           <h1 className="text-xl font-bold text-slate-900">Find Your Store</h1>
         </div>
-        <div className="w-20"></div>
+        
+        {/* User Profile Section */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 bg-green-500 rounded-full border-2 border-white" style={{ marginRight: 4 }}></div>
+            <div className="text-right">
+              <p className="font-medium text-slate-900 text-sm flex items-center gap-1">
+                {session?.user?.name ? (
+                  <>
+                    {session.user.name.charAt(0)}
+                    {session.user.name.slice(1)}
+                  </>
+                ) : 'User'}
+              </p>
+              <p className="text-xs text-slate-500">
+                {session?.user?.email || 'user@example.com'}
+              </p>
+            </div>
+            <div className="relative">
+              {session?.user?.image ? (
+                <Image
+                  src={session.user.image}
+                  alt={session.user.name || 'User'}
+                  width={40}
+                  height={40}
+                  className="rounded-full border-2 border-blue-100"
+                />
+              ) : (
+                <div className="w-10 h-10 rounded-full bg-blue-100 border-2 border-blue-200 flex items-center justify-center">
+                  <User className="w-5 h-5 text-blue-600" />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Main Content */}
@@ -176,7 +229,11 @@ export default function SearchPage() {
                   <input
                     type="text"
                     value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onChange={(e) => setSearchQuery(
+                      searchType === 'merchant_id'
+                        ? e.target.value.toUpperCase()
+                        : e.target.value
+                    )}
                     onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
                     placeholder={searchType === 'merchant_id' ? 'Enter merchant ID or store name...' : 'Enter mobile number...'}
                     className="w-full pl-10 pr-4 py-3 rounded-lg border border-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all text-slate-900 placeholder-slate-500"
@@ -217,7 +274,7 @@ export default function SearchPage() {
                 <p className="text-sm text-red-700">{error}</p>
               </div>
             </div>
-          ) : filteredRestaurants.length === 0 ? (
+          ) : filteredStores.length === 0 ? (
             <div className="bg-white rounded-lg border border-slate-200 p-8 text-center">
               <MapPin className="w-12 h-12 text-slate-400 mx-auto mb-4" />
               <h3 className="text-lg font-semibold text-slate-900 mb-2">
@@ -228,72 +285,48 @@ export default function SearchPage() {
               </p>
             </div>
           ) : (
-            <div>
+            <div className="w-[90%] mx-auto">
               <h3 className="text-lg font-semibold text-slate-900 mb-4">
-                Available Stores ({filteredRestaurants.length})
+                Available Stores ({filteredStores.length})
               </h3>
-
               {/* Table */}
               <div className="overflow-x-auto">
-                <table className="w-full">
+                <table className="w-full border border-slate-200 bg-white" style={{ tableLayout: 'auto', width: '100%' }}>
                   <thead>
-                    <tr className="bg-slate-900 text-white">
-                      <th className="px-6 py-4 text-left font-semibold">Store Name</th>
-                      <th className="px-6 py-4 text-left font-semibold">Store ID</th>
-                      <th className="px-6 py-4 text-left font-semibold">City</th>
-                      <th className="px-6 py-4 text-left font-semibold">Parent MID</th>
-                      <th className="px-6 py-4 text-left font-semibold">Status</th>
-                      <th className="px-6 py-4 text-center font-semibold">Action</th>
+                    <tr className="bg-slate-900 text-white whitespace-nowrap">
+                      <th className="px-4 py-3 text-left font-semibold">Store Name</th>
+                      <th className="px-4 py-3 text-left font-semibold">Store ID</th>
+                      <th className="px-4 py-3 text-left font-semibold">Parent ID</th>
+                      <th className="px-4 py-3 text-left font-semibold">Status</th>
+                      <th className="px-4 py-3 text-left font-semibold">City</th>
+                      <th className="px-4 py-3 text-left font-semibold">Postal Code</th>
+                      <th className="px-4 py-3 text-center font-semibold">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
-                    {filteredRestaurants.map((restaurant) => (
-                      <tr
-                        key={restaurant.id}
-                        className="bg-white hover:bg-blue-50 transition-colors cursor-pointer"
-                      >
-                        <td className="px-6 py-4">
+                    {filteredStores.map((store) => (
+                      <tr key={store.id} className="bg-white hover:bg-blue-50 transition-colors cursor-pointer text-slate-800 whitespace-nowrap">
+                        <td className="px-4 py-3 font-semibold text-blue-700 hover:text-blue-900 hover:underline transition-colors whitespace-normal break-words" style={{ wordBreak: 'break-word', whiteSpace: 'normal', overflow: 'visible', textOverflow: 'unset' }}>
+                          <button onClick={() => handleSelectRestaurant(store.store_id)}>{store.store_name}</button>
+                        </td>
+                        <td className="px-4 py-3 font-mono text-slate-700 overflow-hidden text-ellipsis" style={{ maxWidth: 120 }}>
+                          <button onClick={() => handleSelectRestaurant(store.store_id)}>{store.store_id}</button>
+                        </td>
+                        <td className="px-4 py-3 text-slate-700" style={{ maxWidth: 120 }}>
+                          {store.parent_id ?? 'N/A'}
+                        </td>
+                        <td className="px-4 py-3 font-semibold text-slate-900" style={{ maxWidth: 120 }}>
+                          {store.approval_status ?? 'N/A'}
+                        </td>
+                        <td className="px-4 py-3 text-slate-700" style={{ maxWidth: 120 }}>
+                          {store.city}
+                        </td>
+                        <td className="px-4 py-3 text-slate-700" style={{ maxWidth: 100 }}>
+                          {store.pincode ?? store.postal_code ?? 'N/A'}
+                        </td>
+                        <td className="px-4 py-3 text-center">
                           <button
-                            onClick={() => handleSelectRestaurant(restaurant.store_id)}
-                            className="font-semibold text-blue-600 hover:text-blue-700 hover:underline transition-colors"
-                          >
-                            {restaurant.store_name}
-                          </button>
-                        </td>
-                        <td className="px-6 py-4">
-                          <button
-                            onClick={() => handleSelectRestaurant(restaurant.store_id)}
-                            className="text-blue-600 hover:text-blue-700 hover:underline transition-colors font-mono"
-                          >
-                            {restaurant.store_id}
-                          </button>
-                        </td>
-                        <td className="px-6 py-4 text-slate-700">
-                          <div className="flex items-center gap-2">
-                            <MapPin className="w-4 h-4 text-slate-400" />
-                            {restaurant.city}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className="font-mono font-semibold text-slate-900">
-                            {restaurant.parent_id ?? 'N/A'}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-2">
-                            <span
-                              className={`w-2 h-2 rounded-full ${
-                                restaurant.is_active ? 'bg-green-500' : 'bg-slate-400'
-                              }`}
-                            ></span>
-                            <span className="text-sm font-medium text-slate-700">
-                              {restaurant.is_active ? 'Active' : 'Inactive'}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          <button
-                            onClick={() => handleSelectRestaurant(restaurant.store_id)}
+                            onClick={() => handleSelectRestaurant(store.store_id)}
                             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold transition-all text-sm"
                           >
                             View Store
@@ -309,6 +342,35 @@ export default function SearchPage() {
           )}
         </div>
       </div>
+
+      {/* Modal for status */}
+      <Dialog open={modalOpen} onClose={() => setModalOpen(false)} className="fixed z-50 inset-0 overflow-y-auto">
+        <div className="flex items-center justify-center min-h-screen px-4">
+          <Dialog.Overlay className="fixed inset-0 bg-black opacity-30" />
+          <div className="relative bg-white rounded-lg max-w-md mx-auto p-8 shadow-xl z-10">
+            <Dialog.Title className="text-lg font-bold mb-2">Store Status</Dialog.Title>
+            <div className="mb-4">
+              {modalStatus.status === 'SUBMITTED' && <span className="text-blue-600 font-semibold">Your store is submitted and under review.</span>}
+              {modalStatus.status === 'UNDER_VERIFICATION' && <span className="text-yellow-600 font-semibold">Your store is under verification.</span>}
+              {modalStatus.status === 'REJECTED' && <span className="text-red-600 font-semibold">Your store registration was rejected.</span>}
+              {modalStatus.status === 'ERROR' && <span className="text-red-600 font-semibold">{modalStatus.reason}</span>}
+              {/* Fallback for unknown status */}
+              {modalStatus.status && !['SUBMITTED','UNDER_VERIFICATION','REJECTED','ERROR'].includes(modalStatus.status) && (
+                <span className="text-gray-700 font-semibold">Store status: {modalStatus.status}{modalStatus.reason ? ` - ${modalStatus.reason}` : ''}</span>
+              )}
+              {modalStatus.reason && modalStatus.status === 'REJECTED' && (
+                <div className="mt-2 text-sm text-gray-700">Reason: {modalStatus.reason}</div>
+              )}
+            </div>
+            <button 
+              onClick={() => setModalOpen(false)} 
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </Dialog>
     </div>
   )
 }

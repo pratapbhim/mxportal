@@ -1,4 +1,3 @@
-
 "use client";
 // Utility to safely display numeric values in input fields
 const safeNumberInput = (val: number | null | undefined) => (typeof val === 'number' && !isNaN(val) ? val : '');
@@ -23,6 +22,7 @@ interface FormData {
   store_name: string;
   store_display_name: string;
   store_type: string;
+  custom_store_type: string; // Added for OTHERS option
   store_email: string;
   store_phones: string[];
   store_description: string;
@@ -106,6 +106,7 @@ const StoreRegistrationForm = () => {
     store_name: '',
     store_display_name: '',
     store_type: 'RESTAURANT',
+    custom_store_type: '', // Added for OTHERS option
     store_email: '',
     store_phones: [''],
     store_description: '',
@@ -151,25 +152,6 @@ const StoreRegistrationForm = () => {
     avg_preparation_time_minutes: 30,
     min_order_amount: 0,
     delivery_radius_km: 5,
-      // Example patch for numeric fields (repeat for all numeric inputs in the store setup step):
-      // <input
-      //   type="number"
-      //   name="avg_preparation_time_minutes"
-      //   value={safeNumberInput(storeSetup.avg_preparation_time_minutes)}
-      //   onChange={handleStoreSetupChange}
-      // />
-      // <input
-      //   type="number"
-      //   name="min_order_amount"
-      //   value={safeNumberInput(storeSetup.min_order_amount)}
-      //   onChange={handleStoreSetupChange}
-      // />
-      // <input
-      //   type="number"
-      //   name="delivery_radius_km"
-      //   value={safeNumberInput(storeSetup.delivery_radius_km)}
-      //   onChange={handleStoreSetupChange}
-      // />
     is_pure_veg: false,
     accepts_online_payment: true,
     accepts_cash: true,
@@ -347,6 +329,12 @@ const StoreRegistrationForm = () => {
       setFormData(prev => ({ ...prev, [name]: (e.target as HTMLInputElement).checked }));
     } else if (name === 'store_phones') {
       setFormData(prev => ({ ...prev, store_phones: value.split(',').map(phone => phone.trim()).filter(phone => phone) }));
+    } else if (name === 'store_type') {
+      setFormData(prev => ({ 
+        ...prev, 
+        [name]: value,
+        custom_store_type: value === 'OTHERS' ? prev.custom_store_type : '' // Clear custom type if not OTHERS
+      }));
     } else {
       setFormData(prev => ({ ...prev, [name]: value }));
     }
@@ -354,6 +342,10 @@ const StoreRegistrationForm = () => {
 
   const validateStep = (stepNumber: number): boolean => {
     if (stepNumber === 1) {
+      // Check if store_type is OTHERS and custom_store_type is provided
+      if (formData.store_type === 'OTHERS' && !formData.custom_store_type.trim()) {
+        return false;
+      }
       return !!(formData.store_name && formData.store_type && formData.store_email);
     }
     if (stepNumber === 2) {
@@ -366,7 +358,11 @@ const StoreRegistrationForm = () => {
     if (validateStep(step)) {
       setStep(prev => prev + 1);
     } else {
-      alert('Please fill all required fields before proceeding.');
+      if (step === 1 && formData.store_type === 'OTHERS' && !formData.custom_store_type.trim()) {
+        alert('Please specify your store type in the "Custom Store Type" field.');
+      } else {
+        alert('Please fill all required fields before proceeding.');
+      }
     }
   };
 
@@ -394,6 +390,7 @@ const StoreRegistrationForm = () => {
       store_name: '',
       store_display_name: '',
       store_type: 'RESTAURANT',
+      custom_store_type: '',
       store_email: '',
       store_phones: [''],
       store_description: '',
@@ -682,6 +679,7 @@ const StoreRegistrationForm = () => {
                         <option value="GROCERY">Grocery</option>
                         <option value="PHARMA">Pharma</option>
                         <option value="STATIONERY">Stationery</option>
+                        <option value="OTHERS">Others</option>
                       </select>
                     </div>
                     <div>
@@ -699,6 +697,28 @@ const StoreRegistrationForm = () => {
                       />
                     </div>
                   </div>
+                  
+                  {/* Custom Store Type Field - Only shown when OTHERS is selected */}
+                  {formData.store_type === 'OTHERS' && (
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2">
+                        Custom Store Type *
+                      </label>
+                      <input
+                        type="text"
+                        name="custom_store_type"
+                        value={formData.custom_store_type}
+                        onChange={handleInputChange}
+                        className="w-full px-4 py-3 text-sm border-2 border-indigo-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                        placeholder="Please specify your store type (e.g., Clothing Store, Electronics, etc.)"
+                        required
+                      />
+                      <p className="text-xs text-slate-500 mt-1">
+                        Please specify what type of store you are registering
+                      </p>
+                    </div>
+                  )}
+                  
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-2">
                       Phone Numbers (comma separated)
@@ -973,7 +993,7 @@ const StoreRegistrationForm = () => {
             <CombinedDocumentStoreSetup
               onDocumentComplete={handleDocumentUploadComplete}
               onBack={prevStep}
-              businessType={formData.store_type}
+              businessType={formData.store_type === 'OTHERS' ? formData.custom_store_type : formData.store_type}
             />
           </div>
         )}
@@ -984,7 +1004,7 @@ const StoreRegistrationForm = () => {
             <CombinedDocumentStoreSetup
               onStoreSetupComplete={handleStoreSetupComplete}
               onBack={() => setStep(3)}
-              businessType={formData.store_type}
+              businessType={formData.store_type === 'OTHERS' ? formData.custom_store_type : formData.store_type}
               initialStep="store-setup"
             />
           </div>

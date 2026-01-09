@@ -1,4 +1,5 @@
 "use client";
+"use client";
 import React, { useState, useEffect } from 'react';
 import AdminLayout from '../../../components/AdminLayout';
 import { fetchAllManagers, createManager, updateManager, deleteManager, AreaManager } from '@/lib/managers';

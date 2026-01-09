@@ -1,7 +1,8 @@
 "use client";
+import './custom-scrollbar.css';
 import React, { useState, useEffect, useRef } from 'react';
 import AdminLayout from '../../../components/AdminLayout';
-import { fetchAllStores, updateStoreInfo } from '@/lib/database';
+import { fetchAllStores } from '@/lib/database';
 import { fetchStoreDocuments, fetchStoreOperatingHours } from '@/lib/adminStore';
 import Image from 'next/image';
 
@@ -13,6 +14,9 @@ const statusColors = {
 };
 
 export default function VerificationsPage() {
+    // Document status modal state
+    const [docStatusModal, setDocStatusModal] = useState<{ open: boolean; docId?: number; idx?: number } | null>(null);
+    const [pendingDocStatus, setPendingDocStatus] = useState<{ idx: number; value: string } | null>(null);
   const [search, setSearch] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
@@ -24,6 +28,7 @@ export default function VerificationsPage() {
   const [storeDocuments, setStoreDocuments] = useState<any[]>([]);
   const [operatingHours, setOperatingHours] = useState<any[]>([]);
   const [approveModal, setApproveModal] = useState<{ open: boolean; storeId?: string; store?: any }>({ open: false });
+  const [zoomedImage, setZoomedImage] = useState<string | null>(null);
   const viewModalRef = useRef<HTMLDivElement>(null);
   const approveModalRef = useRef<HTMLDivElement>(null);
   const rejectModalRef = useRef<HTMLDivElement>(null);
@@ -115,9 +120,13 @@ export default function VerificationsPage() {
       // Only update status if it's currently SUBMITTED
       if (store.approval_status === 'SUBMITTED') {
         setLoading(true);
-        await updateStoreInfo(store.store_id, { 
-          approval_status: 'UNDER_VERIFICATION',
-          updated_at: new Date().toISOString()
+        await fetch('/api/store/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            storeId: store.store_id,
+            updates: { approval_status: 'UNDER_VERIFICATION' }
+          })
         });
         setStores(prevStores => 
           prevStores.map(s => 
@@ -131,7 +140,7 @@ export default function VerificationsPage() {
       // Fetch documents and operating hours
       setLoading(true);
       const docs = await fetchStoreDocuments(store.id);
-      const hours = await fetchStoreOperatingHours(store.id);
+      const hours = await fetchStoreOperatingHours(store.store_id); // FIX: use store.store_id
       setStoreDocuments(docs);
       setOperatingHours(hours);
       setLoading(false);
@@ -157,14 +166,13 @@ export default function VerificationsPage() {
       setLoading(true);
       const approvalTime = new Date().toISOString();
       
-      await updateStoreInfo(approveModal.storeId, { 
-        approval_status: 'APPROVED', 
-        is_active: true,
-        approval_reason: 'Store approved by admin',
-        approved_by: currentAdmin.name,
-        approved_by_email: currentAdmin.email,
-        approved_at: approvalTime,
-        updated_at: approvalTime
+      await fetch('/api/store/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          storeId: approveModal.storeId,
+          updates: { approval_status: 'APPROVED' }
+        })
       });
       
       loadStores(); // This will reload and filter out APPROVED stores
@@ -183,14 +191,13 @@ export default function VerificationsPage() {
       setLoading(true);
       const rejectionTime = new Date().toISOString();
       
-      await updateStoreInfo(rejectModal.storeId, { 
-        approval_status: 'REJECTED', 
-        is_active: false, 
-        approval_reason: rejectReason,
-        approved_by: currentAdmin.name,
-        approved_by_email: currentAdmin.email,
-        approved_at: rejectionTime,
-        updated_at: rejectionTime
+      await fetch('/api/store/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          storeId: rejectModal.storeId,
+          updates: { approval_status: 'REJECTED', approval_reason: rejectReason }
+        })
       });
       
       loadStores(); // This will reload and filter out REJECTED stores
@@ -311,7 +318,7 @@ export default function VerificationsPage() {
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 whitespace-nowrap">Email</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 whitespace-nowrap">City</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 whitespace-nowrap">Created At</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 whitespace-nowrap">Status</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 whitespace-nowrap">Approval Status</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 whitespace-nowrap">Actions</th>
               </tr>
             </thead>
@@ -429,7 +436,13 @@ export default function VerificationsPage() {
                 <div>
                   <h2 className="text-2xl font-bold text-gray-900">{viewModal.store.store_name}</h2>
                   <div className="flex items-center gap-3 mt-1">
-                    <span className="text-sm text-gray-600">Store ID: {viewModal.store.store_id}</span>
+                    <span className="text-sm text-gray-600">
+                      Store ID: {viewModal.store.store_id}
+                      {viewModal.store.parent_id && (
+                        <span className="ml-4">Parent ID: {viewModal.store.parent_id}</span>
+                      )}
+                    </span>
+                    {/* Approval status badge and under review indicator remain as is, but DRAFT label is removed */}
                     <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${statusColors[viewModal.store.approval_status as keyof typeof statusColors]}`}>
                       {viewModal.store.approval_status?.replace('_', ' ')}
                     </span>
@@ -451,7 +464,7 @@ export default function VerificationsPage() {
                 </button>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-6" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+              <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                   <div className="space-y-6">
                     <div className="bg-gray-50 p-4 rounded-lg">
@@ -461,6 +474,10 @@ export default function VerificationsPage() {
                           <label className="text-xs font-medium text-gray-500">Store Name</label>
                           <p className="mt-1 text-sm text-gray-900">{viewModal.store.store_name}</p>
                         </div>
+                          <div>
+                            <label className="text-xs font-medium text-gray-500">Store Display Name</label>
+                            <p className="mt-1 text-sm text-gray-900">{viewModal.store.store_display_name || "-"}</p>
+                          </div>
                         <div>
                           <label className="text-xs font-medium text-gray-500">Store Email</label>
                           <p className="mt-1 text-sm text-gray-900">{viewModal.store.store_email || '-'}</p>
@@ -468,10 +485,42 @@ export default function VerificationsPage() {
                         <div className="col-span-2">
                           <label className="text-xs font-medium text-gray-500">Cuisine Type</label>
                           <p className="mt-1 text-sm text-gray-900">
-                            {Array.isArray(viewModal.store.cuisine_type) 
-                              ? viewModal.store.cuisine_type.join(', ') 
-                              : viewModal.store.cuisine_type || '-'}
+                            {Array.isArray(viewModal.store.cuisine_types) && viewModal.store.cuisine_types.length > 0
+                              ? viewModal.store.cuisine_types.join(", ")
+                              : "-"}
                           </p>
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-gray-500">Longitude</label>
+                          <p className="mt-1 text-sm text-gray-900">{viewModal.store.longitude ?? "-"}</p>
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-gray-500">Latitude</label>
+                          <p className="mt-1 text-sm text-gray-900">{viewModal.store.latitude ?? "-"}</p>
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-gray-500">Avg. Preparation Time (min)</label>
+                          <p className="mt-1 text-sm text-gray-900">{viewModal.store.avg_preparation_time_minutes ?? "-"}</p>
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-gray-500">Min Order Amount</label>
+                          <p className="mt-1 text-sm text-gray-900">{viewModal.store.min_order_amount ?? "-"}</p>
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-gray-500">Delivery Radius (km)</label>
+                          <p className="mt-1 text-sm text-gray-900">{viewModal.store.delivery_radius_km ?? "-"}</p>
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-gray-500">Is Pure Veg</label>
+                          <p className="mt-1 text-sm text-gray-900">{typeof viewModal.store.is_pure_veg === "boolean" ? (viewModal.store.is_pure_veg ? "Yes" : "No") : "-"}</p>
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-gray-500">Accepts Online Payment</label>
+                          <p className="mt-1 text-sm text-gray-900">{typeof viewModal.store.accepts_online_payment === "boolean" ? (viewModal.store.accepts_online_payment ? "Yes" : "No") : "-"}</p>
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-gray-500">Accepts Cash</label>
+                          <p className="mt-1 text-sm text-gray-900">{typeof viewModal.store.accepts_cash === "boolean" ? (viewModal.store.accepts_cash ? "Yes" : "No") : "-"}</p>
                         </div>
                         <div className="col-span-2">
                           <label className="text-xs font-medium text-gray-500">Description</label>
@@ -531,14 +580,85 @@ export default function VerificationsPage() {
                               <div className="flex items-center justify-between">
                                 <div>
                                   <span className="font-medium text-gray-700">{doc.document_type}</span>
-                                  <span className="ml-2 text-xs text-gray-500">{doc.document_number || ''}</span>
+                                  {doc.document_number && (
+                                    <span className="ml-2 text-xs text-gray-500">{doc.document_number}</span>
+                                  )}
                                 </div>
-                                <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${doc.is_verified ? 'bg-emerald-100 text-emerald-700' : 'bg-orange-100 text-orange-700'}`}>
-                                  {doc.is_verified ? 'Verified' : 'Pending'}
-                                </span>
+                                <select
+                                  className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${doc.is_verified ? 'bg-emerald-100 text-emerald-700' : 'bg-orange-100 text-orange-700'}`}
+                                  value={doc.is_verified ? 'APPROVED' : 'PENDING'}
+                                  onChange={e => {
+                                    const newStatus = e.target.value;
+                                    if (newStatus === 'APPROVED') {
+                                      setDocStatusModal({ open: true, docId: doc.id, idx });
+                                      setPendingDocStatus({ idx, value: 'APPROVED' });
+                                    } else {
+                                      // If set back to pending, just update UI (optional: update backend)
+                                      setPendingDocStatus({ idx, value: 'PENDING' });
+                                    }
+                                  }}
+                                >
+                                  <option value="PENDING">Pending</option>
+                                  <option value="APPROVED">Approved</option>
+                                </select>
+                                      {/* Document Status Confirmation Modal */}
+                                      {docStatusModal?.open && (
+                                        <div className="fixed inset-0 flex items-center justify-center z-[120] p-4" style={{ backdropFilter: 'blur(1px)', background: 'rgba(255,255,255,0.1)' }}>
+                                          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
+                                            <div className="text-center mb-6">
+                                              <h3 className="text-lg font-bold text-gray-900 mb-2">Approve Document</h3>
+                                              <p className="text-sm text-gray-600 mb-4">Are you sure you want to approve this document?</p>
+                                            </div>
+                                            <div className="flex gap-3 justify-center">
+                                              <button
+                                                className="flex-1 px-4 py-2.5 border-2 border-gray-300 rounded-lg text-gray-700 font-semibold hover:bg-gray-50"
+                                                onClick={() => {
+                                                  // Cancel: revert dropdown to Pending
+                                                  if (pendingDocStatus) {
+                                                    setStoreDocuments(prev => prev.map((d, i) => i === pendingDocStatus.idx ? { ...d, is_verified: false } : d));
+                                                  }
+                                                  setDocStatusModal(null);
+                                                  setPendingDocStatus(null);
+                                                }}
+                                              >
+                                                Cancel
+                                              </button>
+                                              <button
+                                                className="flex-1 px-4 py-2.5 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700"
+                                                onClick={async () => {
+                                                  // Approve: update backend and UI
+                                                  if (docStatusModal?.docId !== undefined && pendingDocStatus) {
+                                                    await fetch('/api/update-document-status', {
+                                                      method: 'POST',
+                                                      headers: { 'Content-Type': 'application/json' },
+                                                      body: JSON.stringify({ id: docStatusModal.docId, is_verified: true })
+                                                    });
+                                                    setStoreDocuments(prev => prev.map((d, i) => i === pendingDocStatus.idx ? { ...d, is_verified: true } : d));
+                                                  }
+                                                  setDocStatusModal(null);
+                                                  setPendingDocStatus(null);
+                                                }}
+                                              >
+                                                Approve
+                                              </button>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      )}
                               </div>
                               <div className="flex items-center gap-2 mt-1">
-                                <a href={doc.document_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline text-xs">View Document</a>
+                                <img
+                                  src={doc.document_url}
+                                  alt={doc.document_type}
+                                  className="h-16 w-auto rounded cursor-pointer border hover:opacity-90 transition-opacity"
+                                  onClick={() => setZoomedImage(doc.document_url)}
+                                />
+                                <button
+                                  onClick={() => setZoomedImage(doc.document_url)}
+                                  className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                                >
+                                  Zoom
+                                </button>
                                 {doc.rejection_reason && <span className="text-xs text-red-500 ml-2">Rejected: {doc.rejection_reason}</span>}
                               </div>
                             </div>
@@ -576,7 +696,150 @@ export default function VerificationsPage() {
                     </div>
                   </div>
                 </div>
+
+                {/* Additional Info Section */}
+                <div className="mt-8 pt-4 border-t">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Additional Information</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Store Type</label>
+                      <p className="mt-1 text-sm text-gray-900">{viewModal.store.store_type || '-'}</p>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Operational Status</label>
+                      <p className="mt-1 text-sm text-gray-900">{viewModal.store.operational_status || '-'}</p>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Approval Status</label>
+                      <p className="mt-1 text-sm text-gray-900">{viewModal.store.approval_status || '-'}</p>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Status</label>
+                      <p className="mt-1 text-sm text-gray-900">{viewModal.store.status || '-'}</p>
+                    </div>
+                    <div className="col-span-2">
+                      <label className="text-xs font-medium text-gray-500">Food Categories</label>
+                      <p className="mt-1 text-sm text-gray-900">{Array.isArray(viewModal.store.food_categories) ? viewModal.store.food_categories.join(', ') : viewModal.store.food_categories || '-'}</p>
+                    </div>
+                    <div className="col-span-2">
+                      <label className="text-xs font-medium text-gray-500">Gallery Images</label>
+                      <div className="flex flex-wrap gap-2 mt-1">
+                        {Array.isArray(viewModal.store.gallery_images) && viewModal.store.gallery_images.length > 0 ? (
+                          viewModal.store.gallery_images.map((img: string, idx: number) => (
+                            <div key={idx} className="relative group">
+                              <img
+                                src={img}
+                                alt="Gallery"
+                                className="h-16 w-16 object-cover rounded border cursor-pointer hover:opacity-90"
+                                onClick={() => setZoomedImage(img)}
+                              />
+                              <button
+                                onClick={() => setZoomedImage(img)}
+                                className="absolute bottom-0 right-0 px-1 py-0.5 text-xs bg-blue-600 text-white rounded-tl opacity-0 group-hover:opacity-100 transition-opacity"
+                              >
+                                Zoom
+                              </button>
+                            </div>
+                          ))
+                        ) : (
+                          <span className="text-gray-400">No images</span>
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Logo</label>
+                      <div className="mt-1">
+                        {viewModal.store.logo_url ? (
+                          <div className="relative inline-block group">
+                            <img
+                              src={viewModal.store.logo_url}
+                              alt="Logo"
+                              className="h-12 w-12 object-cover rounded border cursor-pointer hover:opacity-90"
+                              onClick={() => setZoomedImage(viewModal.store.logo_url)}
+                            />
+                            <button
+                              onClick={() => setZoomedImage(viewModal.store.logo_url)}
+                              className="absolute bottom-0 right-0 px-1 py-0.5 text-xs bg-blue-600 text-white rounded-tl opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              Zoom
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="text-gray-400">No logo</span>
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Banner</label>
+                      <div className="mt-1">
+                        {viewModal.store.banner_url ? (
+                          <div className="relative inline-block group">
+                            <img
+                              src={viewModal.store.banner_url}
+                              alt="Banner"
+                              className="h-12 w-24 object-cover rounded border cursor-pointer hover:opacity-90"
+                              onClick={() => setZoomedImage(viewModal.store.banner_url)}
+                            />
+                            <button
+                              onClick={() => setZoomedImage(viewModal.store.banner_url)}
+                              className="absolute bottom-0 right-0 px-1 py-0.5 text-xs bg-blue-600 text-white rounded-tl opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              Zoom
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="text-gray-400">No banner</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
+
+              {/* Action Buttons in Modal */}
+              <div className="flex justify-end gap-3 p-6 border-t bg-gray-50">
+                <button
+                  className="px-4 py-2.5 border-2 border-gray-300 rounded-lg text-gray-700 font-semibold hover:bg-gray-50"
+                  onClick={() => setViewModal({ open: false })}
+                >
+                  Close
+                </button>
+                <button
+                  className="px-4 py-2.5 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700"
+                  onClick={() => handleReject(viewModal.store)}
+                  disabled={viewModal.store.approval_status === 'SUBMITTED'}
+                >
+                  Reject
+                </button>
+                <button
+                  className="px-4 py-2.5 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700"
+                  onClick={() => handleApproveClick(viewModal.store)}
+                  disabled={viewModal.store.approval_status === 'SUBMITTED'}
+                >
+                  Approve
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Zoomed Image Modal */}
+        {zoomedImage && (
+          <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-[100] p-4" onClick={e => { e.stopPropagation(); setZoomedImage(null); }}>
+            <div className="relative max-w-[90vw] max-h-[90vh]" onClick={e => e.stopPropagation()}>
+              <img
+                src={zoomedImage}
+                alt="Zoomed Document"
+                className="max-h-[80vh] max-w-[90vw] rounded-lg shadow-2xl"
+              />
+              <button
+                onClick={e => { e.stopPropagation(); setZoomedImage(null); }}
+                className="absolute -top-3 -right-3 bg-white rounded-full p-2 shadow-lg hover:bg-gray-100"
+              >
+                <svg className="w-6 h-6 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
             </div>
           </div>
         )}

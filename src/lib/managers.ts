@@ -12,7 +12,7 @@ export interface AreaManager {
 
 export const fetchAllManagers = async (): Promise<AreaManager[]> => {
   const { data, error } = await supabase
-    .from('area_managers')
+    .from('merchant_area_managers')
     .select('*')
     .order('created_at', { ascending: false });
   if (error) {
@@ -27,11 +27,25 @@ export const fetchAllManagers = async (): Promise<AreaManager[]> => {
 };
 
 export const createManager = async (manager: Partial<AreaManager>): Promise<boolean> => {
-  // Do NOT send id, let the trigger generate it. Map mobile to phone.
-  const { name, email, phone, mobile, region, status } = manager;
+  // Auto-generate manager_id in format GMMA1001, GMMA1002, ...
+  const { name, email, mobile, alternate_mobile, region, cities, postal_codes, status } = manager;
+  // Fetch latest manager_id
+  const { data: latestData, error: latestError } = await supabase
+    .from('merchant_area_managers')
+    .select('manager_id')
+    .order('id', { ascending: false })
+    .limit(1);
+  let nextSeq = 1001;
+  if (latestData && latestData.length > 0 && latestData[0].manager_id) {
+    const match = latestData[0].manager_id.match(/GMMA(\d+)/);
+    if (match) {
+      nextSeq = parseInt(match[1], 10) + 1;
+    }
+  }
+  const manager_id = `GMMA${nextSeq}`;
   const { error } = await supabase
-    .from('area_managers')
-    .insert([{ name, email, phone: mobile || phone, region, status }]);
+    .from('merchant_area_managers')
+    .insert([{ manager_id, name, email, mobile, alternate_mobile, region, cities, postal_codes, status }]);
   if (error) {
     console.error('Error creating manager:', error);
     return false;
@@ -41,7 +55,7 @@ export const createManager = async (manager: Partial<AreaManager>): Promise<bool
 
 export const updateManager = async (id: string, updates: Partial<AreaManager>): Promise<boolean> => {
   const { error } = await supabase
-    .from('area_managers')
+    .from('merchant_area_managers')
     .update(updates)
     .eq('id', id);
   if (error) {
@@ -53,7 +67,7 @@ export const updateManager = async (id: string, updates: Partial<AreaManager>): 
 
 export const deleteManager = async (id: string): Promise<boolean> => {
   const { error } = await supabase
-    .from('area_managers')
+    .from('merchant_area_managers')
     .delete()
     .eq('id', id);
   if (error) {

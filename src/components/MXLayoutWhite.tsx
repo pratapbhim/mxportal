@@ -1,6 +1,7 @@
 'use client'
 
 import React from 'react'
+import UserHeader from './UserHeader'
 import { MXSidebarWhite } from './MXSidebarWhite'
 
 interface MXLayoutWhiteProps {
@@ -18,6 +19,7 @@ export const MXLayoutWhite: React.FC<MXLayoutWhiteProps> = ({
     <div className="flex h-screen bg-white">
       <MXSidebarWhite restaurantName={restaurantName} restaurantId={restaurantId} />
       <main className="flex-1 md:ml-64 overflow-auto hide-scrollbar">
+        <UserHeader />
         <div className="min-h-screen bg-white">
           {children}
         </div>

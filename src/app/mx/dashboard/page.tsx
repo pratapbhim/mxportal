@@ -20,6 +20,10 @@ import {
 import { Toaster, toast } from 'sonner'
 import { Suspense } from 'react'
 
+
+import { useSession } from 'next-auth/react';
+import Image from 'next/image';
+
 export const dynamic = 'force-dynamic'
 
 // Helper Component: Stat Card
@@ -61,6 +65,7 @@ function StatCard({ title, value, icon, color }: StatCardProps) {
 }
 
 function DashboardContent() {
+  const { data: session, status } = useSession();
   const router = useRouter()
   const searchParams = useSearchParams()
   const [store, setStore] = useState<MerchantStore | null>(null)
@@ -355,6 +360,7 @@ function DashboardContent() {
         restaurantId={storeId || DEMO_STORE_ID}
       >
         <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-blue-50/30 px-4 sm:px-6 lg:px-8 py-8">
+          {/* User Info Top Right removed as per request */}
           <div className="max-w-7xl mx-auto space-y-8">
             {/* Header */}
             <div className="space-y-3">

@@ -53,7 +53,9 @@ export async function POST(request: Request) {
       is_active: false,
       is_accepting_orders: false,
       is_available: false,
-      store_type: formData.get('store_type'),
+      store_type: (formData.get('store_type') === 'OTHERS' && formData.get('custom_store_type'))
+        ? formData.get('custom_store_type')
+        : formData.get('store_type'),
     };
 
     // Insert into merchant_stores
@@ -77,16 +79,16 @@ export async function POST(request: Request) {
         name: 'PAN Card',
       },
       {
-        type: 'AADHAR',
-        number: formData.get('aadhar_number'),
-        file: formData.get('aadhar_front'),
-        name: 'Aadhar Front',
+        type: 'AADHAAR',
+        number: formData.get('aadhaar_number'),
+        file: formData.get('aadhaar_front'),
+        name: 'Aadhaar Front',
       },
       {
-        type: 'AADHAR',
-        number: formData.get('aadhar_number'),
-        file: formData.get('aadhar_back'),
-        name: 'Aadhar Back',
+        type: 'AADHAAR',
+        number: formData.get('aadhaar_number'),
+        file: formData.get('aadhaar_back'),
+        name: 'Aadhaar Back',
       },
       {
         type: 'FSSAI',

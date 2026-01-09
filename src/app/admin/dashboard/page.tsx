@@ -14,6 +14,8 @@ interface Metrics {
   totalWithdrawals: number;
   pendingWithdrawals: number;
   approvedWithdrawals: number;
+  suspendedStores: number;
+  blockedStores: number;
 }
 
 interface AreaManager {
@@ -35,6 +37,8 @@ const metricCards = [
   { key: 'totalWithdrawals', label: 'Total Withdrawals', color: 'yellow', prefix: '₹' },
   { key: 'pendingWithdrawals', label: 'Pending Withdrawals', color: 'orange', prefix: '₹' },
   { key: 'approvedWithdrawals', label: 'Approved Withdrawals', color: 'emerald', prefix: '₹' },
+  { key: 'suspendedStores', label: 'Suspended Stores', color: 'yellow' },
+  { key: 'blockedStores', label: 'Blocked Stores', color: 'gray' },
 ];
 
 
@@ -51,11 +55,14 @@ export default function AdminDashboardPage() {
   const fetchDashboardMetrics = async (from?: string, to?: string) => {
     setLoading(true);
     const counts = await fetchStoreCounts(from, to);
+    console.log('Store counts:', counts); // Debug output
     setMetrics({
       totalStores: counts.total,
       pendingStores: counts.pending,
       verifiedStores: counts.verified,
       rejectedStores: counts.rejected,
+        suspendedStores: counts.suspended,
+        blockedStores: counts.blocked,
       totalSales: 1250000, // TODO: Replace with real sales
       totalWithdrawals: 800000, // TODO: Replace with real withdrawals
       pendingWithdrawals: 120000, // TODO: Replace with real pending withdrawals
@@ -108,25 +115,53 @@ export default function AdminDashboardPage() {
             >Apply</button>
           </div>
         </div>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+          {/* Store status cards */}
+          {["totalStores", "pendingStores", "verifiedStores", "rejectedStores", "suspendedStores", "blockedStores"].map((key) => {
+            const card = metricCards.find(c => c.key === key);
+            if (!card) return null;
+            return (
+              <button
+                key={card.key}
+                className={`rounded-xl shadow-md hover:shadow-lg transition-all p-6 bg-white border-2 border-${card.color}-100 flex flex-col items-start gap-2 focus:outline-none`}
+              >
+                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{card.label}</span>
+                <span className={`text-2xl font-bold text-${card.color}-700`}>
+                  {loading || !metrics ? (
+                    <span className="animate-pulse text-gray-300">...</span>
+                  ) : (
+                    <>
+                      {card.prefix || ''}{metrics[card.key as keyof Metrics].toLocaleString('en-IN')}
+                    </>
+                  )}
+                </span>
+              </button>
+            );
+          })}
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
-          {metricCards.map((card) => (
-            <button
-              key={card.key}
-              className={`rounded-xl shadow-md hover:shadow-lg transition-all p-6 bg-white border-2 border-${card.color}-100 flex flex-col items-start gap-2 focus:outline-none`}
-              // TODO: Add onClick navigation to relevant section
-            >
-              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{card.label}</span>
-              <span className={`text-2xl font-bold text-${card.color}-700`}>
-                {loading || !metrics ? (
-                  <span className="animate-pulse text-gray-300">...</span>
-                ) : (
-                  <>
-                    {card.prefix || ''}{metrics[card.key as keyof Metrics].toLocaleString('en-IN')}
-                  </>
-                )}
-              </span>
-            </button>
-          ))}
+          {/* Amount cards */}
+          {["totalSales", "totalWithdrawals", "pendingWithdrawals", "approvedWithdrawals"].map((key) => {
+            const card = metricCards.find(c => c.key === key);
+            if (!card) return null;
+            return (
+              <button
+                key={card.key}
+                className={`rounded-xl shadow-md hover:shadow-lg transition-all p-6 bg-white border-2 border-${card.color}-100 flex flex-col items-start gap-2 focus:outline-none`}
+              >
+                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{card.label}</span>
+                <span className={`text-2xl font-bold text-${card.color}-700`}>
+                  {loading || !metrics ? (
+                    <span className="animate-pulse text-gray-300">...</span>
+                  ) : (
+                    <>
+                      {card.prefix || ''}{metrics[card.key as keyof Metrics].toLocaleString('en-IN')}
+                    </>
+                  )}
+                </span>
+              </button>
+            );
+          })}
         </div>
         {/* Area Manager section removed as requested */}
       </div>
