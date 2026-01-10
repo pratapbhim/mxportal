@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { MXLayoutWhite } from '@/components/MXLayoutWhite'
+import { supabase } from '@/lib/supabase';
 import { fetchRestaurantById as fetchStoreById, fetchRestaurantByName as fetchStoreByName } from '@/lib/database'
 import { MerchantStore } from '@/lib/merchantStore'
 import { DEMO_RESTAURANT_ID as DEMO_STORE_ID } from '@/lib/constants'
@@ -57,6 +58,7 @@ function StoreSettingsContent() {
       }
     }
   }, [activeTab])
+  
   const [showStoreTimingModal, setShowStoreTimingModal] = useState(false)
   const [expandedDay, setExpandedDay] = useState<DayType | null>(null)
 
@@ -134,84 +136,91 @@ function StoreSettingsContent() {
   // Store timing schedule state
   const [storeSchedule, setStoreSchedule] = useState<DaySchedule[]>(initialSchedule)
 
-  // Load timings from Supabase on page load
-  useEffect(() => {
-    const fetchTimings = async () => {
-      if (!storeId) return;
-      try {
-        const res = await fetch(`/api/outlet-timings?store_id=${storeId}`);
-        if (!res.ok) return;
-        const data = await res.json();
-        if (!data || data.error) return;
-        
-        // Map Supabase data to DaySchedule[]
-        const days: DayType[] = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
-        const loadedSchedule: DaySchedule[] = days.map(day => {
-          const isOpen = !!data[`${day}_open`];
-          const isOutletClosed = data[`closed_day`] === day;
-          const slots = [];
-          let is24Hours = false;
-          
-          if (data[`${day}_slot1_start`] && data[`${day}_slot1_end`]) {
-            slots.push({ 
-              id: '1', 
-              openingTime: data[`${day}_slot1_start`], 
-              closingTime: data[`${day}_slot1_end`] 
-            });
-            if (data[`${day}_slot1_start`] === '00:00' && data[`${day}_slot1_end`] === '00:00') {
-              is24Hours = true;
-            }
+  // Load timings from merchant_store_operating_hours on page load
+  const fetchTimings = async () => {
+    if (!storeId) return;
+    try {
+      // Get store bigint id from merchant_stores
+      const storeRes = await fetch(`/api/store-id?store_id=${storeId}`);
+      if (!storeRes.ok) return;
+      const storeData = await storeRes.json();
+      if (!storeData || !storeData.id) return;
+      const storeBigIntId = storeData.id;
+
+      // Fetch timings from merchant_store_operating_hours
+      const res = await fetch(`/api/outlet-timings?store_id=${storeBigIntId}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!data || data.error) return;
+
+      // Debug: Log fetched timings
+      console.log('Fetched timings from /api/operating-hours:', data);
+
+      // Map DB data to DaySchedule[]
+      const days: DayType[] = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
+      const loadedSchedule: DaySchedule[] = days.map(day => {
+        const isOpen = !!data[`${day}_open`];
+        const isOutletClosed = (data.closed_days || []).includes(day);
+        const slots = [];
+        let is24Hours = false;
+
+        if (data[`${day}_slot1_start`] && data[`${day}_slot1_end`]) {
+          slots.push({
+            id: '1',
+            openingTime: data[`${day}_slot1_start`],
+            closingTime: data[`${day}_slot1_end`]
+          });
+          if (data[`${day}_slot1_start`] === '00:00' && data[`${day}_slot1_end`] === '00:00') {
+            is24Hours = true;
           }
-          if (data[`${day}_slot2_start`] && data[`${day}_slot2_end`]) {
-            slots.push({ 
-              id: '2', 
-              openingTime: data[`${day}_slot2_start`], 
-              closingTime: data[`${day}_slot2_end`] 
-            });
-          }
-          
-          // Calculate duration
-          let hours = 0, minutes = 0;
-          if (data[`${day}_total_duration`]) {
-            const [h, m] = data[`${day}_total_duration`].split(':').map(Number);
-            hours = h || 0;
-            minutes = m || 0;
-          }
-          
-          return {
-            day,
-            label: day.toUpperCase(),
-            isOpen: isOpen && !isOutletClosed,
-            slots,
-            is24Hours,
-            isOutletClosed,
-            duration: is24Hours ? '24.0 hrs' : `${hours}.${minutes.toString().padStart(2, '0')} hrs`,
-            operationalHours: is24Hours ? 24 : hours,
-            operationalMinutes: is24Hours ? 0 : minutes
-          };
-        });
-        
-        setStoreSchedule(loadedSchedule);
-        
-        // Set toggle states from Supabase
-        setApplyMondayToAll(!!data.same_for_all);
-        setForce24Hours(!!data.force_24_hours);
-        setClosedDay(data.closed_day || null);
-        
-        // If 24 hours is enabled, ensure same_for_all is also true
-        if (data.force_24_hours) {
-          setApplyMondayToAll(true);
         }
-        
-      } catch (error) {
-        console.error('Error loading timings:', error);
-      }
-    };
-    
+        if (data[`${day}_slot2_start`] && data[`${day}_slot2_end`]) {
+          slots.push({
+            id: '2',
+            openingTime: data[`${day}_slot2_start`],
+            closingTime: data[`${day}_slot2_end`]
+          });
+        }
+
+        // Calculate duration
+        let minutes = data[`${day}_total_duration_minutes`] || 0;
+        let hours = Math.floor(minutes / 60);
+        let mins = minutes % 60;
+
+        return {
+          day,
+          label: day.toUpperCase(),
+          isOpen: isOpen && !isOutletClosed,
+          slots,
+          is24Hours,
+          isOutletClosed,
+          duration: is24Hours ? '24.0 hrs' : `${hours}.${mins.toString().padStart(2, '0')} hrs`,
+          operationalHours: is24Hours ? 24 : hours,
+          operationalMinutes: is24Hours ? 0 : mins
+        };
+      });
+
+      setStoreSchedule(loadedSchedule);
+      setApplyMondayToAll(!!data.same_for_all_days);
+      setForce24Hours(!!data.is_24_hours);
+      setClosedDay((data.closed_days && data.closed_days.length > 0) ? data.closed_days[0] : null);
+      // Do NOT override toggles based on other logic, always use DB values
+    } catch (error) {
+      console.error('Error loading timings:', error);
+    }
+  };
+
+  useEffect(() => {
     if (storeId) {
       fetchTimings();
     }
   }, [storeId]);
+
+  // Add a manual refresh button for debugging
+  const handleRefreshTimings = () => {
+    fetchTimings();
+    toast.info('Refetched timings from database. Check console for details.');
+  };
 
   // Update duration when slots change
   useEffect(() => {
@@ -612,7 +621,6 @@ function StoreSettingsContent() {
     if (force24Hours) {
       setApplyMondayToAll(true); // Auto-enable same for all
       timings.same_for_all = true;
-      
       storeSchedule.forEach(day => {
         const prefix = day.day;
         timings[`${prefix}_open`] = true;
@@ -620,7 +628,7 @@ function StoreSettingsContent() {
         timings[`${prefix}_slot1_end`] = '00:00';
         timings[`${prefix}_slot2_start`] = null;
         timings[`${prefix}_slot2_end`] = null;
-        timings[`${prefix}_total_duration`] = '24:00';
+        timings[`${prefix}_total_duration_minutes`] = 24 * 60;
       });
     } 
     // If same for all is enabled, copy Monday's schedule to all days
@@ -634,7 +642,7 @@ function StoreSettingsContent() {
           timings[`${prefix}_slot1_end`] = monday.slots[0]?.closingTime || null;
           timings[`${prefix}_slot2_start`] = monday.slots[1]?.openingTime || null;
           timings[`${prefix}_slot2_end`] = monday.slots[1]?.closingTime || null;
-          timings[`${prefix}_total_duration`] = monday.is24Hours ? '24:00' : `${monday.operationalHours}:${monday.operationalMinutes.toString().padStart(2, '0')}`;
+          timings[`${prefix}_total_duration_minutes`] = monday.is24Hours ? 24 * 60 : (monday.operationalHours * 60 + monday.operationalMinutes);
         });
         timings.closed_day = monday.isOutletClosed ? 'monday' : null;
       }
@@ -648,10 +656,21 @@ function StoreSettingsContent() {
         timings[`${prefix}_slot1_end`] = day.slots[0]?.closingTime || null;
         timings[`${prefix}_slot2_start`] = day.slots[1]?.openingTime || null;
         timings[`${prefix}_slot2_end`] = day.slots[1]?.closingTime || null;
-        timings[`${prefix}_total_duration`] = day.is24Hours ? '24:00' : `${day.operationalHours}:${day.operationalMinutes.toString().padStart(2, '0')}`;
+        timings[`${prefix}_total_duration_minutes`] = day.is24Hours ? 24 * 60 : (day.operationalHours * 60 + day.operationalMinutes);
       });
     }
     
+    // Get user email from Supabase Auth
+    let userEmail = '';
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      userEmail = user?.email || '';
+    } catch (e) {
+      userEmail = '';
+    }
+    timings.updated_by_email = userEmail;
+    timings.updated_by_at = new Date().toISOString();
+
     try {
       const res = await fetch('/api/outlet-timings', {
         method: 'POST',
@@ -661,6 +680,8 @@ function StoreSettingsContent() {
       
       if (res.ok) {
         toast.success('✅ Store timings saved successfully!');
+        // Immediately refresh timings from Supabase
+        await fetchTimings();
       } else {
         const data = await res.json();
         toast.error('Failed to save timings: ' + (data.error || 'Unknown error'));
@@ -880,68 +901,47 @@ function StoreSettingsContent() {
                 {/* Store Status Card */}
                 <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
                   <div className="flex items-start gap-4">
-                    <div className="p-3 rounded-lg bg-emerald-50">
-                      <Power size={20} className="text-emerald-600" />
+                    <div className="p-3 rounded-lg bg-gradient-to-br from-orange-50 to-amber-50">
+                      <Power size={20} className="text-orange-600" />
                     </div>
                     <div className="flex-1">
-                      <h3 className="text-lg font-bold text-gray-900 mb-4">Store Status</h3>
-                      
-                      <div className="flex items-center justify-between mb-6">
+                      <div className="flex items-start justify-between mb-4">
                         <div>
-                          <p className="font-medium text-gray-900">Store Availability</p>
-                          <p className="text-sm text-gray-600">Enable or disable store for customers</p>
+                          <h3 className="text-lg font-bold text-gray-900 mb-2">Store Status</h3>
+                          <p className="text-sm text-gray-600">Control your store availability</p>
                         </div>
+                        <div className="text-right">
+                          <div className="flex items-center gap-2 mb-1">
+                            <div className={`w-2.5 h-2.5 rounded-full ${isStoreOpen ? 'bg-emerald-500' : 'bg-red-500'}`}></div>
+                            <span className={`text-sm font-semibold ${isStoreOpen ? 'text-emerald-700' : 'text-red-700'}`}>
+                              {isStoreOpen ? 'STORE OPEN' : 'STORE CLOSED'}
+                            </span>
+                          </div>
+                          {tempOffDuration && (
+                            <p className="text-xs text-gray-500">Temporarily closed for {tempOffDuration} more minutes</p>
+                          )}
+                        </div>
+                      </div>
+                      
+                      <div className="flex gap-3">
                         <button
                           onClick={handleStoreToggle}
-                          className={`px-6 py-2.5 rounded-lg font-semibold transition-all flex items-center gap-2 ${
+                          className={`flex-1 py-3 px-4 rounded-lg font-semibold transition-all flex items-center justify-center gap-2 ${
                             isStoreOpen
-                              ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
-                              : 'bg-red-100 text-red-700 hover:bg-red-200'
+                              ? 'bg-gradient-to-r from-red-50 to-orange-50 text-red-700 hover:from-red-100 hover:to-orange-100 border-2 border-red-200 hover:border-red-300'
+                              : 'bg-gradient-to-r from-emerald-50 to-green-50 text-emerald-700 hover:from-emerald-100 hover:to-green-100 border-2 border-emerald-200 hover:border-emerald-300'
                           }`}
                         >
-                          {isStoreOpen ? (
-                            <>
-                              <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
-                              OPEN
-                            </>
-                          ) : (
-                            <>
-                              <div className="w-2 h-2 rounded-full bg-red-500"></div>
-                              CLOSED
-                            </>
-                          )}
+                          <Power size={16} />
+                          {isStoreOpen ? 'Close Store Temporarily' : 'Open Store'}
+                        </button>
+                        <button
+                          onClick={handleViewStore}
+                          className="py-3 px-4 bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-700 rounded-lg font-semibold hover:from-blue-100 hover:to-indigo-100 border-2 border-blue-200 hover:border-blue-300 transition-all"
+                        >
+                          View Store on GatiMitra
                         </button>
                       </div>
-
-                      <div className="bg-gray-50 p-4 rounded-lg">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="font-medium text-gray-900">Auto-close Store Daily</p>
-                            <p className="text-sm text-gray-600">Automatically close at closing time</p>
-                          </div>
-                          <label className="relative inline-flex items-center cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={autoCloseEnabled}
-                              onChange={(e) => setAutoCloseEnabled(e.target.checked)}
-                              className="sr-only peer"
-                            />
-                            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-600"></div>
-                          </label>
-                        </div>
-                      </div>
-
-                      {!isStoreOpen && tempOffDuration && (
-                        <div className="mt-4 p-4 rounded-lg bg-orange-50 border border-orange-200">
-                          <div className="flex items-start gap-3">
-                            <AlertCircle size={18} className="text-orange-600 flex-shrink-0 mt-0.5" />
-                            <div>
-                              <p className="font-semibold text-orange-700">Temporarily Closed</p>
-                              <p className="text-orange-600 text-sm">Will reopen in {tempOffDuration} minutes</p>
-                            </div>
-                          </div>
-                        </div>
-                      )}
                     </div>
                   </div>
                 </div>
@@ -950,14 +950,14 @@ function StoreSettingsContent() {
                 <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
                   <div className="flex items-start gap-4">
                     <div className="p-3 rounded-lg bg-blue-50">
-                      <MapPin size={20} className="text-blue-600" />
+                      <Settings size={20} className="text-blue-600" />
                     </div>
                     <div className="flex-1">
-                      <h3 className="text-lg font-bold text-gray-900 mb-6">Store Information</h3>
+                      <h3 className="text-lg font-bold text-gray-900 mb-4">Store Information</h3>
                       
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                          <label className="block text-sm font-semibold text-gray-900 mb-2">Store Name *</label>
+                          <label className="block text-sm font-semibold text-gray-900 mb-2">Store Name</label>
                           <input
                             type="text"
                             value={storeName}
@@ -966,16 +966,19 @@ function StoreSettingsContent() {
                             placeholder="Enter store name"
                           />
                         </div>
-                        
+
                         <div>
                           <label className="block text-sm font-semibold text-gray-900 mb-2">Phone Number *</label>
-                          <div className="flex items-center gap-2">
-                            <Phone size={16} className="text-gray-400" />
+                          <div className="flex gap-2">
+                            <div className="flex items-center px-4 border border-gray-300 rounded-lg bg-gray-50">
+                              <Globe size={16} className="text-gray-500" />
+                              <span className="ml-2 text-gray-700">+91</span>
+                            </div>
                             <input
                               type="tel"
                               value={phone}
                               onChange={(e) => setPhone(e.target.value)}
-                              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                              className="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                               placeholder="Enter phone number"
                             />
                           </div>
@@ -1477,6 +1480,7 @@ function StoreSettingsContent() {
             {activeTab === 'timings' && (
               <div className="space-y-6">
                 <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-5">
+                  {/* Refresh Timings button removed as requested */}
                   <div className="flex flex-row flex-wrap gap-6 items-center">
                     {/* Same Timing Toggle */}
                     <div className="flex items-center gap-2">
@@ -1559,6 +1563,17 @@ function StoreSettingsContent() {
                             {storeSchedule.reduce((total, day) => total + day.operationalMinutes, 0)} minutes
                           </div>
                         </div>
+                      </div>
+                      {/* Compact Save Button */}
+                      <div className="flex justify-end mt-4">
+                        <button
+                          onClick={saveStoreTimings}
+                          disabled={isSaving}
+                          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-all font-semibold disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                        >
+                          <Save size={16} />
+                          {isSaving ? 'Saving...' : 'Save All Outlet Timings'}
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -1698,7 +1713,7 @@ function StoreSettingsContent() {
                                 checked={daySchedule.is24Hours}
                                 onChange={() => handle24HoursToggle(daySchedule.day)}
                                 className="sr-only peer"
-                                                           />
+                              />
                               <div className="w-8 h-4 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600"></div>
                             </label>
                           </div>
@@ -1741,16 +1756,6 @@ function StoreSettingsContent() {
                 </div>
 
                 {/* Save Button */}
-                <div className="sticky bottom-4 bg-white rounded-xl border border-gray-200 p-4 shadow-lg">
-                  <button
-                    onClick={saveStoreTimings}
-                    disabled={isSaving}
-                    className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 transition-all font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <Save size={18} />
-                    {isSaving ? 'Saving...' : 'Save All Outlet Timings'}
-                  </button>
-                </div>
               </div>
             )}
 

@@ -118,13 +118,39 @@ export const updateStoreInfo = async (storeId: string, updates: Partial<Merchant
 // Fetch operating hours for a store
 export const fetchStoreOperatingHours = async (storeId: string) => {
   try {
+    // First, get the numeric id from merchant_stores using the string storeId
+    const { data: storeData, error: storeError } = await supabase
+      .from('merchant_stores')
+      .select('id')
+      .eq('store_id', storeId)
+      .single();
+    if (storeError || !storeData) throw storeError || new Error('Store not found');
+    const storeBigIntId = storeData.id;
     const { data, error } = await supabase
       .from('merchant_store_operating_hours')
       .select('*')
-      .eq('store_id', storeId)
-      .order('day_of_week', { ascending: true });
-    if (error) throw error;
-    return data;
+      .eq('store_id', storeBigIntId)
+      .single();
+    if (error || !data) throw error || new Error('Operating hours not found');
+    // Transform to array of days
+    const days = [
+      { key: 'monday', label: 'Monday' },
+      { key: 'tuesday', label: 'Tuesday' },
+      { key: 'wednesday', label: 'Wednesday' },
+      { key: 'thursday', label: 'Thursday' },
+      { key: 'friday', label: 'Friday' },
+      { key: 'saturday', label: 'Saturday' },
+      { key: 'sunday', label: 'Sunday' }
+    ];
+    return days.map(day => ({
+      day_label: day.label,
+      open: data[`${day.key}_open`],
+      slot1_start: data[`${day.key}_slot1_start`],
+      slot1_end: data[`${day.key}_slot1_end`],
+      slot2_start: data[`${day.key}_slot2_start`],
+      slot2_end: data[`${day.key}_slot2_end`],
+      total_duration_minutes: data[`${day.key}_total_duration_minutes`],
+    }));
   } catch (error) {
     console.error('Error fetching operating hours:', error);
     return [];

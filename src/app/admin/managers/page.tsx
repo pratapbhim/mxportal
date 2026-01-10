@@ -11,9 +11,26 @@ const statusColors = {
 };
 
 export default function ManagersPage() {
+  useEffect(() => {
+    // Hide vertical scrollbar for the whole page
+    document.body.style.overflowY = 'hidden';
+    return () => {
+      document.body.style.overflowY = '';
+    };
+  }, []);
   const [managers, setManagers] = useState<AreaManager[]>([]);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ id: '', name: '', region: '', email: '', phone: '', status: 'active' });
+  const [form, setForm] = useState({
+    id: '',
+    name: '',
+    email: '',
+    mobile: '',
+    alternate_mobile: '',
+    region: '',
+    cities: '',
+    postal_codes: '',
+    status: 'ACTIVE'
+  });
   const [editId, setEditId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showStores, setShowStores] = useState<{ open: boolean; managerName?: string; managerPhone?: string }>({ open: false });
@@ -135,44 +152,58 @@ export default function ManagersPage() {
 
   return (
     <AdminLayout>
-      <div className="min-h-screen bg-white px-8 py-8">
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold text-gray-900 mb-4">Area Manager Management</h1>
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+      <div className="min-h-screen bg-white px-2 py-2 overflow-hidden">
+        <div className="mb-1">
+          <h1 className="text-lg font-bold text-gray-900 mb-1">Area Manager Management</h1>
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-1">
             <button
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors"
+              className="px-2 py-1 bg-blue-600 text-white rounded font-semibold hover:bg-blue-700 transition-colors text-xs"
               onClick={() => { 
                 setShowForm(true); 
                 setEditId(null); 
-                setForm({ id: '', name: '', region: '', email: '', phone: '', status: 'active' }); 
+                setForm({
+                  id: '',
+                  name: '',
+                  email: '',
+                  mobile: '',
+                  alternate_mobile: '',
+                  region: '',
+                  cities: '',
+                  postal_codes: '',
+                  status: 'ACTIVE'
+                });
               }}
             >
               Add Manager
             </button>
+            {/*
+              NOTE: If you see hydration mismatch errors here, ensure no browser extensions (like temp mail, password managers, etc.) are injecting attributes into this input. 
+              Do not add dynamic style or data-* attributes here. If you must, use useEffect to set them only on the client.
+            */}
             <input
               type="text"
               placeholder="Search by name, email, or mobile..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="px-4 py-2 border rounded-lg w-full md:w-72 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="px-2 py-1 border rounded w-full md:w-60 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-xs"
               autoComplete="off"
               spellCheck={false}
             />
           </div>
         </div>
 
-        <div className="overflow-x-auto rounded-lg shadow border mb-8">
-          <table className="min-w-full bg-white">
+        <div className="overflow-x-auto rounded border mb-4">
+          <table className="min-w-full bg-white text-xs">
             <thead>
               <tr className="border-b bg-gray-50">
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 whitespace-nowrap">Manager ID</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 whitespace-nowrap">Name</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 whitespace-nowrap">Email</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 whitespace-nowrap">Mobile</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 whitespace-nowrap">Region/City</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 whitespace-nowrap">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 whitespace-nowrap">Managed Stores</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 whitespace-nowrap">Actions</th>
+                <th className="px-2 py-2 text-left font-semibold text-gray-600 whitespace-nowrap">Manager ID</th>
+                <th className="px-2 py-2 text-left font-semibold text-gray-600 whitespace-nowrap">Name</th>
+                <th className="px-2 py-2 text-left font-semibold text-gray-600 whitespace-nowrap">Email</th>
+                <th className="px-2 py-2 text-left font-semibold text-gray-600 whitespace-nowrap">Mobile</th>
+                <th className="px-2 py-2 text-left font-semibold text-gray-600 whitespace-nowrap">Region/City</th>
+                <th className="px-2 py-2 text-left font-semibold text-gray-600 whitespace-nowrap">Status</th>
+                <th className="px-2 py-2 text-left font-semibold text-gray-600 whitespace-nowrap">Managed Stores</th>
+                <th className="px-2 py-2 text-left font-semibold text-gray-600 whitespace-nowrap">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -191,23 +222,23 @@ export default function ManagersPage() {
               ) : (
                 filteredManagers.map((m) => (
                   <tr key={m.id} className="border-b hover:bg-gray-50">
-                    <td className="px-4 py-3 font-mono text-sm text-blue-700 font-semibold whitespace-nowrap">
-                      {m.id}
+                    <td className="px-2 py-2 font-mono text-xs text-blue-700 font-semibold whitespace-nowrap">
+                      {m.manager_id || m.id}
                     </td>
-                    <td className="px-4 py-3 font-semibold text-gray-900 whitespace-nowrap">
+                    <td className="px-2 py-2 font-semibold text-gray-900 whitespace-nowrap">
                       {m.name}
                     </td>
-                    <td className="px-4 py-3 text-gray-900 whitespace-nowrap overflow-hidden text-ellipsis max-w-xs">
+                    <td className="px-2 py-2 text-gray-900 whitespace-nowrap overflow-hidden text-ellipsis max-w-xs">
                       {m.email || '-'}
                     </td>
-                    <td className="px-4 py-3 text-gray-900 whitespace-nowrap overflow-hidden text-ellipsis max-w-xs">
-                      {m.phone || '-'}
+                    <td className="px-2 py-2 text-gray-900 whitespace-nowrap overflow-hidden text-ellipsis max-w-xs">
+                      {m.mobile || '-'}
                     </td>
-                    <td className="px-4 py-3 text-gray-700 whitespace-nowrap">
+                    <td className="px-2 py-2 text-gray-700 whitespace-nowrap">
                       {m.region}
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
+                    <td className="px-2 py-2 whitespace-nowrap">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
                         m.status === 'active' 
                           ? 'bg-green-100 text-green-700' 
                           : 'bg-gray-200 text-gray-700'
@@ -215,29 +246,29 @@ export default function ManagersPage() {
                         {m.status.charAt(0).toUpperCase() + m.status.slice(1)}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-gray-700 whitespace-nowrap">
+                    <td className="px-2 py-2 text-gray-700 whitespace-nowrap">
                       <button
-                        className="px-3 py-1.5 rounded-lg bg-blue-100 text-blue-700 text-xs font-medium hover:bg-blue-200 transition-colors"
-                        onClick={() => handleViewStores(m.phone || '', m.name)}
+                        className="px-2 py-1 rounded bg-blue-100 text-blue-700 text-xs font-medium hover:bg-blue-200 transition-colors"
+                        onClick={() => handleViewStores(m.mobile || '', m.name)}
                       >
                         View Stores
                       </button>
                     </td>
-                    <td className="px-4 py-3 flex gap-2 whitespace-nowrap">
+                    <td className="px-2 py-2 flex gap-1 whitespace-nowrap">
                       <button 
-                        className="px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700 text-xs font-medium hover:bg-gray-200 transition-colors"
+                        className="px-2 py-1 rounded bg-gray-100 text-gray-700 text-xs font-medium hover:bg-gray-200 transition-colors"
                         onClick={() => handleEdit(m.id)}
                       >
                         Edit
                       </button>
                       <button 
-                        className="px-3 py-1.5 rounded-lg bg-red-100 text-red-700 text-xs font-medium hover:bg-red-200 transition-colors"
+                        className="px-2 py-1 rounded bg-red-100 text-red-700 text-xs font-medium hover:bg-red-200 transition-colors"
                         onClick={() => handleDelete(m.id)}
                       >
                         Delete
                       </button>
                       <button 
-                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                        className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
                           m.status === 'active'
                             ? 'bg-gray-400 text-white hover:bg-gray-500'
                             : 'bg-green-500 text-white hover:bg-green-600'
@@ -257,73 +288,45 @@ export default function ManagersPage() {
         {/* Manager Form Modal */}
         {showForm && (
           <div className="fixed inset-0 flex items-center justify-center bg-black/40 z-50 p-4">
-            <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border-2 border-blue-200">
+            <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-2xl max-w-2xl w-full p-6 border-2 border-blue-200">
               <h3 className="text-lg font-bold text-gray-900 mb-4">
                 {editId ? 'Edit' : 'Add'} Area Manager
               </h3>
 
-              <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1">
-                    Name <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    className="w-full border rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    value={form.name}
-                    onChange={(e) => setForm({ ...form, name: e.target.value })}
-                    required
-                  />
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Name <span className="text-red-500">*</span></label>
+                  <input className="w-full border rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-blue-500" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required />
                 </div>
-
                 <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1">
-                    Email <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    className="w-full border rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    type="email"
-                    value={form.email}
-                    onChange={(e) => setForm({ ...form, email: e.target.value })}
-                    required
-                  />
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Email <span className="text-red-500">*</span></label>
+                  <input className="w-full border rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-blue-500" type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} required />
                 </div>
-
                 <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1">
-                    Mobile <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    className="w-full border rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    type="tel"
-                    value={form.phone}
-                    onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                    required
-                  />
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Mobile <span className="text-red-500">*</span></label>
+                  <input className="w-full border rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-blue-500" type="tel" value={form.mobile} onChange={e => setForm({ ...form, mobile: e.target.value })} required />
                 </div>
-
                 <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1">
-                    Region/City <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    className="w-full border rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    value={form.region}
-                    onChange={(e) => setForm({ ...form, region: e.target.value })}
-                    required
-                  />
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Alternate Mobile</label>
+                  <input className="w-full border rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-blue-500" type="tel" value={form.alternate_mobile} onChange={e => setForm({ ...form, alternate_mobile: e.target.value })} />
                 </div>
-
                 <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1">
-                    Status
-                  </label>
-                  <select
-                    className="w-full border rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    value={form.status}
-                    onChange={(e) => setForm({ ...form, status: e.target.value })}
-                  >
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Region <span className="text-red-500">*</span></label>
+                  <input className="w-full border rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-blue-500" value={form.region} onChange={e => setForm({ ...form, region: e.target.value })} required />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Cities (comma separated)</label>
+                  <input className="w-full border rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-blue-500" value={form.cities} onChange={e => setForm({ ...form, cities: e.target.value })} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Postal Codes (comma separated)</label>
+                  <input className="w-full border rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-blue-500" value={form.postal_codes} onChange={e => setForm({ ...form, postal_codes: e.target.value })} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Status</label>
+                  <select className="w-full border rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-blue-500" value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}>
+                    <option value="ACTIVE">Active</option>
+                    <option value="INACTIVE">Inactive</option>
                   </select>
                 </div>
               </div>

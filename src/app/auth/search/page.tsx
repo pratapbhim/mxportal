@@ -2,6 +2,7 @@
 import { useSession } from "next-auth/react";
 import { useState, useEffect } from 'react'
 import { Dialog } from '@headlessui/react';
+import { DialogBackdrop } from '@headlessui/react';
 import { useRouter } from 'next/navigation'
 import { ChefHat, ArrowLeft, Search, MapPin, Star, Loader, AlertCircle, User } from 'lucide-react'
 import { toast } from 'sonner'
@@ -100,7 +101,12 @@ export default function SearchPage() {
     try {
       const res = await fetch(`/api/store-status?store_id=${storeId}`);
       const data = await res.json();
-      console.log('DEBUG approval_status:', data.approval_status);
+      // Find the selected store's name
+      const selectedStore = stores.find((s) => s.store_id === storeId);
+      if (selectedStore) {
+        localStorage.setItem('selectedRestaurantName', selectedStore.store_name || 'User');
+        localStorage.setItem('selectedRestaurantId', selectedStore.store_id || '');
+      }
       // Always set correct key and redirect, let dashboard handle modal
       localStorage.setItem('selectedStoreId', storeId);
       router.push('/mx/dashboard');
@@ -346,7 +352,7 @@ export default function SearchPage() {
       {/* Modal for status */}
       <Dialog open={modalOpen} onClose={() => setModalOpen(false)} className="fixed z-50 inset-0 overflow-y-auto">
         <div className="flex items-center justify-center min-h-screen px-4">
-          <Dialog.Overlay className="fixed inset-0 bg-black opacity-30" />
+          <DialogBackdrop className="fixed inset-0 bg-black opacity-30" />
           <div className="relative bg-white rounded-lg max-w-md mx-auto p-8 shadow-xl z-10">
             <Dialog.Title className="text-lg font-bold mb-2">Store Status</Dialog.Title>
             <div className="mb-4">

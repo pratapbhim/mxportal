@@ -3,7 +3,7 @@ import './custom-scrollbar.css';
 import React, { useState, useEffect, useRef } from 'react';
 import AdminLayout from '../../../components/AdminLayout';
 import { fetchAllStores } from '@/lib/database';
-import { fetchStoreDocuments, fetchStoreOperatingHours } from '@/lib/adminStore';
+import { fetchStoreDocuments, fetchStoreOperatingHours, fetchStoreNumericIdByCode } from '@/lib/adminStore';
 import Image from 'next/image';
 
 const statusColors = {
@@ -39,6 +39,13 @@ export default function VerificationsPage() {
     email: 'admin@example.com'
   };
 
+  useEffect(() => {
+    // Hide vertical scrollbar for the whole page
+    document.body.style.overflowY = 'hidden';
+    return () => {
+      document.body.style.overflowY = '';
+    };
+  }, []);
   useEffect(() => {
     loadStores();
   }, []);
@@ -140,7 +147,12 @@ export default function VerificationsPage() {
       // Fetch documents and operating hours
       setLoading(true);
       const docs = await fetchStoreDocuments(store.id);
-      const hours = await fetchStoreOperatingHours(store.store_id); // FIX: use store.store_id
+      // Get numeric store id from code
+      const numericId = await fetchStoreNumericIdByCode(store.store_id);
+      let hours = [];
+      if (numericId) {
+        hours = await fetchStoreOperatingHours(numericId);
+      }
       setStoreDocuments(docs);
       setOperatingHours(hours);
       setLoading(false);
@@ -224,16 +236,16 @@ export default function VerificationsPage() {
   return (
     <AdminLayout>
       <div className="p-6">
-        <div className="flex justify-between items-center mb-6">
+        <div className="flex justify-between items-center mb-2">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Store Verification Management</h1>
+            <h1 className="text-base font-bold text-gray-900">Store Verification Management</h1>
             <p className="text-sm text-gray-600 mt-1">Review and manage store verification requests</p>
           </div>
           <div className="flex items-center gap-4">
-            <div className="px-4 py-2 bg-red-50 rounded-lg border border-red-200">
+            <div className="px-2 py-1 bg-red-50 rounded border border-red-200 text-xs">
               <span className="text-sm font-medium text-red-700">Pending: {pendingCount}</span>
             </div>
-            <div className="px-4 py-2 bg-blue-50 rounded-lg border border-blue-200">
+            <div className="px-2 py-1 bg-blue-50 rounded border border-blue-200 text-xs">
               <span className="text-sm font-medium text-blue-700">Under Review: {underVerificationCount}</span>
             </div>
           </div>
@@ -241,7 +253,7 @@ export default function VerificationsPage() {
         
         {/* Filters Section */}
         <div className="bg-white rounded-lg border shadow-sm p-4 mb-6">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-1">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Search</label>
               <input
@@ -249,7 +261,7 @@ export default function VerificationsPage() {
                 placeholder="Store name, ID, or email..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-2 py-1 border rounded bg-white focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-xs"
               />
             </div>
             
@@ -259,7 +271,7 @@ export default function VerificationsPage() {
                 type="date"
                 value={fromDate}
                 onChange={(e) => setFromDate(e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-2 py-1 border rounded bg-white focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-xs"
               />
             </div>
             
@@ -269,21 +281,21 @@ export default function VerificationsPage() {
                 type="date"
                 value={toDate}
                 onChange={(e) => setToDate(e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-2 py-1 border rounded bg-white focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-xs"
               />
             </div>
             
             <div className="flex items-end gap-2">
               <button
                 onClick={applyDateFilter}
-                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors"
+                className="flex-1 px-2 py-1 bg-blue-600 text-white rounded font-medium hover:bg-blue-700 transition-colors text-xs"
               >
                 Apply
               </button>
               {(fromDate || toDate) && (
                 <button
                   onClick={clearDateFilter}
-                  className="px-4 py-2 border-2 border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition-colors"
+                  className="px-2 py-1 border border-gray-300 text-gray-700 rounded font-medium hover:bg-gray-50 transition-colors text-xs"
                 >
                   Clear
                 </button>
@@ -576,7 +588,7 @@ export default function VerificationsPage() {
                           <div className="col-span-2 text-gray-500">No documents found.</div>
                         ) : (
                           storeDocuments.map((doc, idx) => (
-                            <div key={doc.id || idx} className="col-span-2 border-b pb-2 mb-2">
+                            <div key={`${doc.document_type}-${idx}`} className="col-span-2 border-b pb-2 mb-2">
                               <div className="flex items-center justify-between">
                                 <div>
                                   <span className="font-medium text-gray-700">{doc.document_type}</span>
@@ -676,9 +688,9 @@ export default function VerificationsPage() {
                           operatingHours.map((hour, idx) => (
                             <div key={hour.id || idx} className="col-span-2 border-b pb-2 mb-2">
                               <div className="flex items-center justify-between">
-                                <span className="font-medium text-gray-700">{hour.day_of_week}</span>
-                                <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${hour.is_open ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                                  {hour.is_open ? 'Open' : 'Closed'}
+                                <span className="font-medium text-gray-700">{hour.day_label}</span>
+                                <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${hour.open ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                                  {hour.open ? 'Open' : 'Closed'}
                                 </span>
                               </div>
                               <div className="text-xs text-gray-600 mt-1">

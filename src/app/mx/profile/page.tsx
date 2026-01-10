@@ -33,6 +33,111 @@ import {
 
 export const dynamic = "force-dynamic";
 
+class ProfileErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(error: any, info: any) {
+    // Optionally log error
+    // console.error(error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: 40, textAlign: 'center', color: '#b91c1c', background: '#fff0f0' }}>
+          <h2>Something went wrong.</h2>
+          <p>Please refresh the page or contact support if this continues.</p>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// ================= OPERATING DAYS CARD COMPONENT =================
+function OperatingDaysCard({ storeId }: { storeId: string | null }) {
+  const [days, setDays] = useState<any[]>([]);
+  const [totalMinutes, setTotalMinutes] = useState(0);
+  
+  useEffect(() => {
+    if (!storeId) return;
+    import("@/lib/database").then(mod => {
+      mod.fetchStoreOperatingHours(storeId).then((result) => {
+        setDays(result);
+        setTotalMinutes(result.reduce((sum: number, d: any) => sum + (d.total_duration_minutes || 0), 0));
+      });
+    });
+  }, [storeId]);
+
+  function formatSlot(start: string, end: string) {
+    if (!start || !end) return null;
+    return `${start} - ${end}`;
+  }
+
+  function minutesToHours(minutes: number) {
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    return `${h}h ${m}m`;
+  }
+
+  function abbreviateDayLabel(dayLabel: string): string {
+    const abbreviations: Record<string, string> = {
+      'Monday': 'Mon',
+      'Tuesday': 'Tue',
+      'Wednesday': 'Wed',
+      'Thursday': 'Thu',
+      'Friday': 'Fri',
+      'Saturday': 'Sat',
+      'Sunday': 'Sun'
+    };
+    return abbreviations[dayLabel] || dayLabel;
+  }
+
+  return (
+    <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+          <Clock size={16} className="text-blue-600" />
+          Operating Days
+        </h3>
+        <span className="text-xs font-semibold text-blue-700 bg-blue-100 px-2 py-1 rounded">
+          Total: {minutesToHours(totalMinutes)}
+        </span>
+      </div>
+      <div className="grid grid-cols-1 gap-2">
+        {days.map((day: any) => (
+          <div key={day.day_label} className="flex items-center justify-between text-xs py-1 px-2 rounded border border-gray-100 bg-white">
+            {/* यहाँ text-gray-900 या text-gray-800 add करें */}
+            <span className="font-medium w-16 text-gray-900">{abbreviateDayLabel(day.day_label)}</span>
+            {day.open ? (
+              <span className="text-green-700 font-semibold">Open</span>
+            ) : (
+              <span className="text-red-500 font-semibold">Closed</span>
+            )}
+            <span className="text-gray-700">
+              {day.open && (
+                <>
+                  {formatSlot(day.slot1_start, day.slot1_end) && (
+                    <span>{formatSlot(day.slot1_start, day.slot1_end)}</span>
+                  )}
+                  {formatSlot(day.slot2_start, day.slot2_end) && (
+                    <span className="ml-2">{formatSlot(day.slot2_start, day.slot2_end)}</span>
+                  )}
+                  <span className="ml-2 text-xs text-gray-500">({minutesToHours(day.total_duration_minutes)})</span>
+                </>
+              )}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function ProfilePage() {
   const [store, setStore] = useState<MerchantStore | null>(null);
   const [editData, setEditData] = useState<MerchantStore | null>(null);
@@ -258,7 +363,7 @@ export default function ProfilePage() {
   }
 
   return (
-    <>
+    <ProfileErrorBoundary>
       <Toaster position="top-right" richColors />
       <MXLayoutWhite
         restaurantName={store.store_name}
@@ -320,17 +425,25 @@ export default function ProfilePage() {
                     </div>
                   </div>
                   
-                  {/* QUICK STATS */}
-                  <div className="flex items-center gap-3">
-                    <div className="text-center px-3 py-1.5 bg-white rounded-lg border border-gray-200">
+                  {/* QUICK STATS (with extra fields) */}
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <div className="text-center px-3 py-1.5 bg-white rounded-lg border border-gray-200 min-w-[90px]">
                       <div className="text-sm font-bold text-gray-900">{store.min_order_amount || 0}</div>
                       <div className="text-xs text-gray-500">Min Order</div>
                     </div>
-                    <div className="text-center px-3 py-1.5 bg-white rounded-lg border border-gray-200">
-                      <div className="text-sm font-bold text-gray-900">{store.avg_delivery_time_minutes || 0}m</div>
-                      <div className="text-xs text-gray-500">Delivery</div>
+                    <div className="text-center px-3 py-1.5 bg-white rounded-lg border border-gray-200 min-w-[90px]">
+                      <div className="text-sm font-bold text-gray-900">{(store.avg_preparation_time_minutes ?? store.avg_delivery_time_minutes) || 0}m</div>
+                      <div className="text-xs text-gray-500">Prep Time</div>
                     </div>
-                    <div className="text-center px-3 py-1.5 bg-white rounded-lg border border-gray-200">
+                    <div className="text-center px-3 py-1.5 bg-white rounded-lg border border-gray-200 min-w-[90px]">
+                      <div className="text-sm font-bold text-gray-900">{store.delivery_radius_km ?? '—'}</div>
+                      <div className="text-xs text-gray-500">Delivery Radius</div>
+                    </div>
+                    <div className="text-center px-3 py-1.5 bg-white rounded-lg border border-gray-200 min-w-[120px]">
+                      <div className="text-sm font-bold text-gray-900">{store.parent_merchant_id || '—'}</div>
+                      <div className="text-xs text-gray-500">Parent Merchant ID</div>
+                    </div>
+                    <div className="text-center px-3 py-1.5 bg-white rounded-lg border border-gray-200 min-w-[90px]">
                       <div className="text-sm font-bold text-gray-900">
                         {store.approval_status === 'APPROVED' ? 'Verified' : 'Pending'}
                       </div>
@@ -346,12 +459,36 @@ export default function ProfilePage() {
                   
                   {/* COLUMN 1: STORE DETAILS */}
                   <div className="space-y-4">
-                    <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                      <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                        <Building size={16} className="text-blue-600" />
-                        Store Details
-                      </h3>
-                      <div className="space-y-3">
+                    <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2 m-0">
+                          <Building size={16} className="text-blue-600" />
+                          Store Details
+                        </h3>
+                        <label className="inline-flex items-center cursor-pointer ml-2">
+                          <span className="text-xs font-medium text-gray-700 mr-2">Pure Veg</span>
+                          <input
+                            type="checkbox"
+                            checked={!!editData.is_pure_veg}
+                            onChange={async (e) => {
+                              const newValue = e.target.checked;
+                              setEditData({ ...editData, is_pure_veg: newValue });
+                              setStore({ ...store, is_pure_veg: newValue });
+                              try {
+                                await updateStoreInfo(storeId, { is_pure_veg: newValue });
+                                toast.success(`Store marked as ${newValue ? 'Pure Veg' : 'Not Pure Veg'}`);
+                              } catch (err) {
+                                toast.error('Failed to update Pure Veg status');
+                              }
+                            }}
+                            className="sr-only peer"
+                          />
+                          <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-500 rounded-full peer peer-checked:bg-green-500 transition-all relative">
+                            <div className={`absolute left-1 top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${editData.is_pure_veg ? 'translate-x-4' : ''}`}></div>
+                          </div>
+                        </label>
+                      </div>
+                      <div className="space-y-2 text-sm">
                         <CompactEditableRow
                           label="Store Name"
                           value={editData.store_name}
@@ -360,13 +497,17 @@ export default function ProfilePage() {
                           onSave={stopEditing}
                           onChange={(v) => setEditData({ ...editData, store_name: v })}
                         />
-                        <CompactEditableRow
-                          label="Cuisine Type"
-                          value={formatArray(editData.cuisine_type)}
-                          isEditing={editingField === 'cuisine_type'}
-                          onEdit={() => startEditing('cuisine_type')}
-                          onSave={stopEditing}
-                          onChange={(v) => setEditData({ ...editData, cuisine_type: v.split(',').map(s => s.trim()) })}
+                        <CompactLockedRow
+                          label="Store Display Name"
+                          value={store.store_display_name || '—'}
+                        />
+                        <CompactLockedRow
+                          label="Cuisine Types"
+                          value={Array.isArray(store.cuisine_types) ? store.cuisine_types.join(', ') : (store.cuisine_types || '—')}
+                        />
+                        <CompactLockedRow
+                          label="Food Categories"
+                          value={Array.isArray(store.food_categories) ? store.food_categories.join(', ') : (store.food_categories || '—')}
                         />
                         <CompactEditableRow
                           label="Store Email"
@@ -467,55 +608,7 @@ export default function ProfilePage() {
 
                   {/* COLUMN 2: TIMINGS & OPERATIONS */}
                   <div className="space-y-4">
-                    <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                      <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                        <Clock size={16} className="text-blue-600" />
-                        Operating Hours
-                      </h3>
-                      <div className="space-y-3">
-                        <CompactEditableRow
-                          label="Opening Time"
-                          value={editData.opening_time}
-                          isEditing={editingField === 'opening_time'}
-                          onEdit={() => startEditing('opening_time')}
-                          onSave={stopEditing}
-                          onChange={(v) => setEditData({ ...editData, opening_time: v })}
-                        />
-                        <CompactEditableRow
-                          label="Closing Time"
-                          value={editData.closing_time}
-                          isEditing={editingField === 'closing_time'}
-                          onEdit={() => startEditing('closing_time')}
-                          onSave={stopEditing}
-                          onChange={(v) => setEditData({ ...editData, closing_time: v })}
-                        />
-                        <CompactEditableRow
-                          label="Closed Days"
-                          value={formatArray(editData.closed_days)}
-                          isEditing={editingField === 'closed_days'}
-                          onEdit={() => startEditing('closed_days')}
-                          onSave={stopEditing}
-                          onChange={(v) => setEditData({ ...editData, closed_days: v.split(',').map(s => s.trim()) })}
-                        />
-                        <CompactEditableRow
-                          label="Avg Delivery (min)"
-                          value={editData.avg_delivery_time_minutes}
-                          isEditing={editingField === 'avg_delivery_time_minutes'}
-                          onEdit={() => startEditing('avg_delivery_time_minutes')}
-                          onSave={stopEditing}
-                          onChange={(v) => setEditData({ ...editData, avg_delivery_time_minutes: parseInt(v) || 0 })}
-                        />
-                        <CompactEditableRow
-                          label="Min Order Amount"
-                          value={editData.min_order_amount}
-                          isEditing={editingField === 'min_order_amount'}
-                          onEdit={() => startEditing('min_order_amount')}
-                          onSave={stopEditing}
-                          onChange={(v) => setEditData({ ...editData, min_order_amount: parseFloat(v) || 0 })}
-                          prefix="₹"
-                        />
-                      </div>
-                    </div>
+                    <OperatingDaysCard storeId={storeId} />
 
                     <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
                       <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
@@ -580,9 +673,34 @@ export default function ProfilePage() {
                         <div className="flex items-center gap-2">
                           <Activity size={12} className="text-gray-500" />
                           <span className="text-gray-800">Active:</span>
-                          <span className={`font-semibold ${store.is_active ? 'text-green-600' : 'text-red-600'}`}>
-                            {store.is_active ? 'Yes' : 'No'}
-                          </span>
+                          <label className="inline-flex items-center cursor-pointer ml-2">
+                            <input
+                              type="checkbox"
+                              checked={!!editData && editData.status === 'ACTIVE'}
+                              onChange={async (e) => {
+                                if (!editData || !store || !storeId) return;
+                                const prevStatus = editData.status;
+                                const newStatus = e.target.checked ? 'ACTIVE' : 'inactive';
+                                // Optimistically update UI
+                                setEditData({ ...editData, status: newStatus });
+                                setStore({ ...store, status: newStatus });
+                                try {
+                                  const ok = await updateStoreInfo(storeId, { status: newStatus });
+                                  if (!ok) throw new Error('Update failed');
+                                  toast.success(`Store is now ${newStatus}`);
+                                } catch (err) {
+                                  // Revert UI if update fails
+                                  setEditData({ ...editData, status: prevStatus });
+                                  setStore({ ...store, status: prevStatus });
+                                  toast.error('Failed to update store status');
+                                }
+                              }}
+                              className="sr-only peer"
+                            />
+                            <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-500 rounded-full peer peer-checked:bg-green-500 transition-all relative">
+                              <div className={`absolute left-1 top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${editData.status === 'ACTIVE' ? 'translate-x-4' : ''}`}></div>
+                            </div>
+                          </label>
                         </div>
                       </div>
                     </div>
@@ -627,12 +745,12 @@ export default function ProfilePage() {
                       </div>
                     </div>
 
-                    <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                      <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                    <div className="bg-gray-50 rounded-lg p-2 border border-gray-200">
+                      <h3 className="text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
                         <Banknote size={16} className="text-blue-600" />
                         Bank Details
                       </h3>
-                      <div className="space-y-3">
+                      <div className="space-y-1 text-sm">
                         <CompactLockedRow
                           label="Account Holder"
                           value={store.bank_account_holder}
@@ -649,6 +767,54 @@ export default function ProfilePage() {
                           label="Bank Name"
                           value={store.bank_name}
                         />
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-medium text-gray-900">Accepts Online Payment</span>
+                          <label className="inline-flex items-center cursor-pointer ml-2">
+                            <input
+                              type="checkbox"
+                              checked={!!editData.accepts_online_payment}
+                              onChange={async (e) => {
+                                const newValue = e.target.checked;
+                                setEditData({ ...editData, accepts_online_payment: newValue });
+                                setStore({ ...store, accepts_online_payment: newValue });
+                                try {
+                                  await updateStoreInfo(storeId, { accepts_online_payment: newValue });
+                                  toast.success(`Accepts Online Payment: ${newValue ? 'Yes' : 'No'}`);
+                                } catch (err) {
+                                  toast.error('Failed to update Online Payment status');
+                                }
+                              }}
+                              className="sr-only peer"
+                            />
+                            <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-500 rounded-full peer peer-checked:bg-green-500 transition-all relative">
+                              <div className={`absolute left-1 top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${editData.accepts_online_payment ? 'translate-x-4' : ''}`}></div>
+                            </div>
+                          </label>
+                        </div>
+                        <div className="flex items-center justify-between gap-2 mt-1">
+                          <span className="font-medium text-gray-900">Accepts Cash</span>
+                          <label className="inline-flex items-center cursor-pointer ml-2">
+                            <input
+                              type="checkbox"
+                              checked={!!editData.accepts_cash}
+                              onChange={async (e) => {
+                                const newValue = e.target.checked;
+                                setEditData({ ...editData, accepts_cash: newValue });
+                                setStore({ ...store, accepts_cash: newValue });
+                                try {
+                                  await updateStoreInfo(storeId, { accepts_cash: newValue });
+                                  toast.success(`Accepts Cash: ${newValue ? 'Yes' : 'No'}`);
+                                } catch (err) {
+                                  toast.error('Failed to update Cash status');
+                                }
+                              }}
+                              className="sr-only peer"
+                            />
+                            <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-500 rounded-full peer peer-checked:bg-green-500 transition-all relative">
+                              <div className={`absolute left-1 top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${editData.accepts_cash ? 'translate-x-4' : ''}`}></div>
+                            </div>
+                          </label>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -841,7 +1007,7 @@ export default function ProfilePage() {
           </div>
         </div>
       )}
-    </>
+    </ProfileErrorBoundary>
   );
 }
 

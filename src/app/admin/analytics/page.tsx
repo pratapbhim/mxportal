@@ -10,6 +10,14 @@ export default function AnalyticsPage() {
   const [storeSales, setStoreSales] = useState<any[]>([]);
 
   useEffect(() => {
+    // Hide vertical scrollbar for the whole page
+    document.body.style.overflowY = 'hidden';
+    return () => {
+      document.body.style.overflowY = '';
+    };
+  }, []);
+
+  useEffect(() => {
     async function loadAnalytics() {
       setLoading(true);
       const stores = await fetchAllStores();
@@ -42,13 +50,13 @@ export default function AnalyticsPage() {
 
   return (
     <AdminLayout>
-      <div className="min-h-screen bg-white px-8 py-8">
-        <h1 className="text-2xl font-bold mb-6 text-gray-900">Sales & Analytics</h1>
-        <div className="flex gap-4 mb-6">
+      <div className="min-h-screen bg-white px-2 py-2">
+        <h1 className="text-lg font-bold mb-2 text-gray-900">Sales & Analytics</h1>
+        <div className="flex gap-2 mb-2">
           <select
             value={period}
             onChange={(e) => setPeriod(e.target.value)}
-            className="px-4 py-2 border rounded-lg bg-white shadow-sm"
+            className="px-2 py-1 border rounded bg-white shadow-sm text-xs"
           >
             <option value="day">Daily</option>
             <option value="week">Weekly</option>

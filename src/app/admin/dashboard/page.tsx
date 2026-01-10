@@ -51,6 +51,14 @@ export default function AdminDashboardPage() {
   const [search, setSearch] = useState('');
   const [filteredManagers, setFilteredManagers] = useState<AreaManager[]>([]);
 
+  useEffect(() => {
+    // Hide vertical scrollbar for the whole page
+    document.body.style.overflowY = 'hidden';
+    return () => {
+      document.body.style.overflowY = '';
+    };
+  }, []);
+
   // Fetch store counts for dashboard metrics
   const fetchDashboardMetrics = async (from?: string, to?: string) => {
     setLoading(true);
@@ -97,25 +105,25 @@ export default function AdminDashboardPage() {
 
   return (
     <AdminLayout>
-      <div className="min-h-screen bg-white px-8 py-8">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Admin Dashboard</h1>
-          <div className="flex gap-2 mt-4 md:mt-0">
+      <div className="min-h-screen bg-white px-2 py-2">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-2">
+          <h1 className="text-lg font-bold text-gray-900">Admin Dashboard</h1>
+          <div className="flex gap-1 mt-2 md:mt-0">
             <label className="text-xs font-semibold text-gray-600 flex flex-col">
               From
-              <input type="date" className="border rounded px-2 py-1 mt-1 text-xs" value={fromDate} onChange={e => setFromDate(e.target.value)} />
+              <input type="date" className="border rounded px-1 py-0.5 mt-1 text-xs" value={fromDate} onChange={e => setFromDate(e.target.value)} />
             </label>
             <label className="text-xs font-semibold text-gray-600 flex flex-col">
               To
-              <input type="date" className="border rounded px-2 py-1 mt-1 text-xs" value={toDate} onChange={e => setToDate(e.target.value)} />
+              <input type="date" className="border rounded px-1 py-0.5 mt-1 text-xs" value={toDate} onChange={e => setToDate(e.target.value)} />
             </label>
             <button
-              className="ml-2 px-4 py-2 bg-blue-600 text-white rounded text-xs font-semibold hover:bg-blue-700"
+              className="ml-1 px-2 py-1 bg-blue-600 text-white rounded text-xs font-semibold hover:bg-blue-700"
               onClick={() => fetchDashboardMetrics(fromDate, toDate)}
             >Apply</button>
           </div>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-2 mb-2">
           {/* Store status cards */}
           {["totalStores", "pendingStores", "verifiedStores", "rejectedStores", "suspendedStores", "blockedStores"].map((key) => {
             const card = metricCards.find(c => c.key === key);

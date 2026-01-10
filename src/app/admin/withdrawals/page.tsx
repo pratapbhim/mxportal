@@ -11,6 +11,13 @@ const statusColors = {
 };
 
 export default function WithdrawalsPage() {
+    useEffect(() => {
+      // Hide vertical scrollbar for the whole page
+      document.body.style.overflowY = 'hidden';
+      return () => {
+        document.body.style.overflowY = '';
+      };
+    }, []);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
@@ -73,21 +80,21 @@ export default function WithdrawalsPage() {
 
   return (
     <AdminLayout>
-      <div className="min-h-screen bg-white px-8 py-8">
-        <h1 className="text-2xl font-bold mb-6 text-gray-900">Withdrawal Management</h1>
-        <div className="flex flex-col md:flex-row md:items-center gap-4 mb-6">
-          <input
-            type="text"
-            placeholder="Search by store, parent, ID, account, or IFSC..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="px-4 py-2 border rounded-lg w-full md:w-72 bg-white shadow-sm"
-          />
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-4 py-2 border rounded-lg bg-white shadow-sm"
-          >
+        <div className="min-h-screen bg-white px-2 py-2">
+          <h1 className="text-lg font-bold mb-2 text-gray-900">Withdrawals</h1>
+          <div className="flex gap-2 mb-2">
+            <input
+              type="text"
+              placeholder="Search by store, merchant, txn, bank..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="px-2 py-1 border rounded bg-white shadow-sm text-xs"
+            />
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="px-2 py-1 border rounded bg-white shadow-sm text-xs"
+            >
             <option value="all">All Statuses</option>
             <option value="pending">Pending</option>
             <option value="approved">Approved</option>

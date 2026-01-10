@@ -29,6 +29,17 @@ export const fetchAllManagers = async (): Promise<AreaManager[]> => {
 export const createManager = async (manager: Partial<AreaManager>): Promise<boolean> => {
   // Auto-generate manager_id in format GMMA1001, GMMA1002, ...
   const { name, email, mobile, alternate_mobile, region, cities, postal_codes, status } = manager;
+  // Ensure cities and postal_codes are arrays
+  const citiesArr = Array.isArray(cities)
+    ? cities
+    : typeof cities === 'string' && cities.length > 0
+      ? cities.split(',').map((c: string) => c.trim()).filter(Boolean)
+      : [];
+  const postalCodesArr = Array.isArray(postal_codes)
+    ? postal_codes
+    : typeof postal_codes === 'string' && postal_codes.length > 0
+      ? postal_codes.split(',').map((p: string) => p.trim()).filter(Boolean)
+      : [];
   // Fetch latest manager_id
   const { data: latestData, error: latestError } = await supabase
     .from('merchant_area_managers')
@@ -45,9 +56,9 @@ export const createManager = async (manager: Partial<AreaManager>): Promise<bool
   const manager_id = `GMMA${nextSeq}`;
   const { error } = await supabase
     .from('merchant_area_managers')
-    .insert([{ manager_id, name, email, mobile, alternate_mobile, region, cities, postal_codes, status }]);
+    .insert([{ manager_id, name, email, mobile, alternate_mobile, region, cities: citiesArr, postal_codes: postalCodesArr, status }]);
   if (error) {
-    console.error('Error creating manager:', error);
+    console.error('Error creating manager:', error?.message || error, error?.details || '', error?.hint || '');
     return false;
   }
   return true;

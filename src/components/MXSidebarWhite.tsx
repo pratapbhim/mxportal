@@ -1,6 +1,8 @@
 'use client'
 
 import React, { useState } from 'react'
+import { useSession } from 'next-auth/react'
+import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
@@ -42,6 +44,13 @@ export const MXSidebarWhite: React.FC<MXSidebarWhiteProps> = ({
   const [expandedMenus, setExpandedMenus] = useState<string[]>(['dashboard'])
   const [showLogoutModal, setShowLogoutModal] = useState(false)
   const [isLoggingOut, setIsLoggingOut] = useState(false)
+  const [showProfileMenu, setShowProfileMenu] = useState(false)
+
+  // Get logged-in user info from next-auth
+  const { data: session } = useSession();
+  const userName = session?.user?.name || 'User';
+  const userEmail = session?.user?.email || 'user@example.com';
+  const userImage = session?.user?.image;
 
   const navigationItems: SidebarItem[] = [
     {
@@ -96,7 +105,7 @@ export const MXSidebarWhite: React.FC<MXSidebarWhiteProps> = ({
     )
   }
 
-  const isActive = (href: string) => pathname === href || pathname.startsWith(href + '?')
+  const isActive = (href: string) => (pathname || '') === href || (pathname || '').startsWith(href + '?')
 
   const handleLogout = async () => {
     setIsLoggingOut(true)
@@ -119,7 +128,7 @@ export const MXSidebarWhite: React.FC<MXSidebarWhiteProps> = ({
 
   const SidebarContent = () => (
     <>
-      {/* Header */}
+      {/* Header: Store icon, store id and name */}
       <div className="flex items-center justify-between p-6 border-b border-gray-200">
         <div className="flex items-center gap-3 flex-1 min-w-0">
           <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center flex-shrink-0">
@@ -173,16 +182,45 @@ export const MXSidebarWhite: React.FC<MXSidebarWhiteProps> = ({
         })}
       </nav>
 
-      {/* Footer */}
+      {/* Footer: User Profile Card (User info, not store) */}
       <div className="p-4 border-t border-gray-200">
-        <button 
-          onClick={() => setShowLogoutModal(true)}
-          disabled={isLoggingOut}
-          className="w-full flex items-center gap-3 px-4 py-3 text-gray-700 hover:text-red-600 rounded-lg transition-colors hover:bg-red-50 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <LogOut size={18} />
-          Sign Out
-        </button>
+        <div className="relative">
+          <button
+            onClick={() => setShowProfileMenu((v) => !v)}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors hover:bg-gray-100 text-sm font-medium focus:outline-none"
+          >
+            {userImage ? (
+              <Image
+                src={userImage}
+                alt={userName}
+                width={36}
+                height={36}
+                className="rounded-full border border-blue-100"
+              />
+            ) : (
+              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center text-white font-bold text-lg">
+                {userName.charAt(0).toUpperCase()}
+              </div>
+            )}
+            <div className="flex flex-col items-start flex-1 min-w-0 text-left">
+              <span className="font-semibold text-gray-900 truncate">{userName}</span>
+              <span className="text-xs text-gray-500 truncate">{userEmail}</span>
+            </div>
+            <ChevronDown size={18} className="text-gray-400" />
+          </button>
+          {showProfileMenu && (
+            <div className="absolute left-0 bottom-14 w-full bg-white border border-gray-200 rounded-lg shadow-lg z-50 animate-fade-in">
+              <button
+                onClick={() => { setShowProfileMenu(false); setShowLogoutModal(true); }}
+                disabled={isLoggingOut}
+                className="w-full flex items-center gap-3 px-4 py-3 text-gray-700 hover:text-red-600 rounded-lg transition-colors hover:bg-red-50 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <LogOut size={18} />
+                Sign Out
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </>
   )

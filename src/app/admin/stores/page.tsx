@@ -89,6 +89,13 @@ const updateLatestMerchantActivity = async (storeId: string, data: {
 };
 
 export default function StoresPage() {
+    useEffect(() => {
+      // Hide vertical scrollbar for the whole page
+      document.body.style.overflowY = 'hidden';
+      return () => {
+        document.body.style.overflowY = '';
+      };
+    }, []);
   const [stores, setStores] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [fromDate, setFromDate] = useState('');
@@ -262,13 +269,13 @@ export default function StoresPage() {
       <div className="min-h-screen bg-gray-50 p-4">
         {/* Header */}
         <div className="mb-4">
-          <h1 className="text-xl font-bold text-gray-900">Stores Management</h1>
+          <h1 className="text-base font-bold text-gray-900">Stores Management</h1>
           <p className="text-xs text-gray-600 mt-0.5">Manage all stores and their status</p>
         </div>
 
         {/* Combined Date Filters and Stats Cards Row */}
         <div className="bg-white rounded border shadow-sm p-4 mb-4">
-          <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+          <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-1">
             {/* Left side - Date Filters */}
             <div className="flex-1">
               <div className="flex flex-col sm:flex-row sm:items-end gap-3">
@@ -311,7 +318,7 @@ export default function StoresPage() {
 
             {/* Right side - Stats Cards */}
             <div className="grid grid-cols-3 gap-2">
-              <div className="border rounded p-2">
+              <div className="border rounded p-1">
                 <div className="text-xs font-medium text-gray-500">TOTAL STORES</div>
                 <div className="text-base font-bold text-gray-900">{stats.total}</div>
               </div>
@@ -330,10 +337,10 @@ export default function StoresPage() {
         {/* Stores Table - Compact */}
         <div className="bg-white rounded border shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
+            <table className="min-w-full text-xs">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Store ID</th>
+                  <th className="px-2 py-1 text-left text-xs font-semibold text-gray-600 uppercase">Store ID</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Store Name</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Parent ID</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Address</th>
@@ -372,7 +379,7 @@ export default function StoresPage() {
                           {store.store_id}
                         </div>
                       </td>
-                      <td className="px-3 py-2">
+                      <td className="px-2 py-1">
                         <div className="text-xs font-medium text-gray-900 truncate max-w-[120px]">{store.store_name}</div>
                       </td>
                       <td className="px-3 py-2">

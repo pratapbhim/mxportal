@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 
 interface DocumentData {
   pan_number: string;
@@ -17,7 +17,14 @@ interface DocumentData {
   pharmacist_registration_number: string;
   pharmacist_certificate: File | null;
   pharmacy_council_registration: File | null;
-  expiry_date: string;
+  fssai_expiry_date: string;
+  drug_license_expiry_date: string;
+  pharmacist_expiry_date: string;
+  other_document_type: string;
+  other_document_number: string;
+  other_document_name: string;
+  other_document_file: File | null;
+  other_document_expiry_date: string;
   [key: string]: any;
 }
 
@@ -89,8 +96,16 @@ const CombinedDocumentStoreSetup: React.FC<CombinedComponentProps> = ({
   businessType = 'RESTAURANT',
   initialStep = 'documents'
 }) => {
-  const [currentStep, setCurrentStep] = useState<'documents' | 'store-setup'>(initialStep);
-  const [activeSection, setActiveSection] = useState<'pan' | 'aadhar' | 'optional'>('pan');
+  const [currentStep, setCurrentStep] = useState<'documents' | 'store-setup'>(
+    typeof window !== 'undefined' && localStorage.getItem('registerStoreStep')
+      ? (localStorage.getItem('registerStoreStep') as 'documents' | 'store-setup')
+      : initialStep
+  );
+  const [activeSection, setActiveSection] = useState<'pan' | 'aadhar' | 'optional' | 'other'>(
+    typeof window !== 'undefined' && localStorage.getItem('registerStoreSection')
+      ? (localStorage.getItem('registerStoreSection') as 'pan' | 'aadhar' | 'optional' | 'other')
+      : 'pan'
+  );
   const [showValidationModal, setShowValidationModal] = useState(false);
   const [validationMessage, setValidationMessage] = useState('');
   const [validationType, setValidationType] = useState<'warning' | 'error' | 'info'>('warning');
@@ -110,7 +125,14 @@ const CombinedDocumentStoreSetup: React.FC<CombinedComponentProps> = ({
     pharmacist_registration_number: '',
     pharmacist_certificate: null,
     pharmacy_council_registration: null,
-    expiry_date: '',
+    fssai_expiry_date: '',
+    drug_license_expiry_date: '',
+    pharmacist_expiry_date: '',
+    other_document_type: '',
+    other_document_number: '',
+    other_document_name: '',
+    other_document_file: null,
+    other_document_expiry_date: ''
   });
 
   const [storeSetup, setStoreSetup] = useState<StoreSetupData>(defaultStoreSetupData);
@@ -124,6 +146,7 @@ const CombinedDocumentStoreSetup: React.FC<CombinedComponentProps> = ({
     drugLicense: useRef<HTMLInputElement>(null) as React.RefObject<HTMLInputElement | null>,
     pharmacistCert: useRef<HTMLInputElement>(null) as React.RefObject<HTMLInputElement | null>,
     pharmacyCouncil: useRef<HTMLInputElement>(null) as React.RefObject<HTMLInputElement | null>,
+    otherDoc: useRef<HTMLInputElement>(null) as React.RefObject<HTMLInputElement | null>,
   };
 
   const isFoodBusiness = () => {
@@ -158,26 +181,29 @@ const CombinedDocumentStoreSetup: React.FC<CombinedComponentProps> = ({
     }
   };
 
-  const validateDocumentSection = (): boolean => {
+  const validateDocumentSection = () => {
     if (activeSection === 'pan') {
       return !!(documents.pan_number && documents.pan_image);
     } else if (activeSection === 'aadhar') {
       return !!(documents.aadhar_number && documents.aadhar_front && documents.aadhar_back);
     } else if (activeSection === 'optional') {
       if (isPharmaBusiness()) {
-        const drugLicenseValid = !!(documents.drug_license_number && documents.drug_license_image);
-        const pharmacistValid = !!(documents.pharmacist_registration_number && documents.pharmacist_certificate && documents.pharmacy_council_registration);
-        return drugLicenseValid && pharmacistValid;
+        return !!(documents.drug_license_number && documents.drug_license_image && documents.drug_license_expiry_date) &&
+               !!(documents.pharmacist_registration_number && documents.pharmacist_certificate && documents.pharmacy_council_registration && documents.pharmacist_expiry_date);
       }
       if (isFoodBusiness()) {
-        return !!(documents.fssai_number && documents.fssai_image);
+        return !!(documents.fssai_number && documents.fssai_image && documents.fssai_expiry_date);
       }
+      // Other Document: always optional
+      return true;
+    } else if (activeSection === 'other') {
+      // Other documents are all optional
       return true;
     }
     return true;
   };
 
-  const showDocumentValidationError = (section: 'pan' | 'aadhar' | 'optional') => {
+  const showDocumentValidationError = (section: 'pan' | 'aadhar' | 'optional' | 'other') => {
     if (section === 'pan') {
       setValidationMessage('Please fill all required fields in the PAN section before proceeding.');
     } else if (section === 'aadhar') {
@@ -208,18 +234,20 @@ const CombinedDocumentStoreSetup: React.FC<CombinedComponentProps> = ({
     } else if (activeSection === 'aadhar') {
       setActiveSection('optional');
     } else if (activeSection === 'optional') {
+      setActiveSection('other');
+    } else if (activeSection === 'other') {
       let shouldProceed = true;
       if (isPharmaBusiness()) {
-        if (!documents.drug_license_number || !documents.drug_license_image || 
+        if (!documents.drug_license_number || !documents.drug_license_image || !documents.drug_license_expiry_date ||
             !documents.pharmacist_registration_number || !documents.pharmacist_certificate || 
-            !documents.pharmacy_council_registration) {
+            !documents.pharmacy_council_registration || !documents.pharmacist_expiry_date) {
           setValidationMessage('All pharma documents are required. Please complete all fields.');
           setValidationType('error');
           setShowValidationModal(true);
           shouldProceed = false;
         }
       } else if (isFoodBusiness()) {
-        if (!documents.fssai_number || !documents.fssai_image) {
+        if (!documents.fssai_number || !documents.fssai_image || !documents.fssai_expiry_date) {
           setValidationMessage('FSSAI certificate is required for food businesses. Please complete this section.');
           setValidationType('error');
           setShowValidationModal(true);
@@ -312,8 +340,10 @@ const CombinedDocumentStoreSetup: React.FC<CombinedComponentProps> = ({
     }
   };
 
-  const triggerFileInput = (ref: React.RefObject<HTMLInputElement>) => {
-    ref.current?.click();
+  const triggerFileInput = (ref: React.RefObject<HTMLInputElement | null>) => {
+    if (ref.current) {
+      ref.current.click();
+    }
   };
 
   const removeFile = (fieldName: keyof DocumentData) => {
@@ -324,7 +354,7 @@ const CombinedDocumentStoreSetup: React.FC<CombinedComponentProps> = ({
     if (currentStep === 'store-setup') {
       setCurrentStep('documents');
     } else if (currentStep === 'documents') {
-      const sectionOrder: Array<'pan' | 'aadhar' | 'optional'> = ['pan', 'aadhar', 'optional'];
+      const sectionOrder: Array<'pan' | 'aadhar' | 'optional' | 'other'> = ['pan', 'aadhar', 'optional', 'other'];
       const currentIndex = sectionOrder.indexOf(activeSection);
       if (currentIndex > 0) {
         setActiveSection(sectionOrder[currentIndex - 1]);
@@ -379,12 +409,23 @@ const CombinedDocumentStoreSetup: React.FC<CombinedComponentProps> = ({
                 </button>
               </>
             ) : (
-              <button
-                onClick={() => handleModalAction(false)}
-                className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700"
-              >
-                OK
-              </button>
+              <>
+                <button
+                  onClick={() => setShowValidationModal(false)}
+                  className="px-4 py-2 text-sm border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    setShowValidationModal(false);
+                    handleDocumentSaveAndContinue();
+                  }}
+                  className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700"
+                >
+                  Try Again
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -770,6 +811,26 @@ const CombinedDocumentStoreSetup: React.FC<CombinedComponentProps> = ({
             </div>
           </div>
 
+          {/* Drug License Expiry Date */}
+          <div className="space-y-2">
+            <h4 className="text-sm font-medium text-gray-700 mb-1">
+              Drug License Expiry Date <span className="text-red-500">*</span>
+            </h4>
+            <div className="w-full md:w-1/2">
+              <input
+                type="date"
+                name="drug_license_expiry_date"
+                value={documents.drug_license_expiry_date}
+                onChange={handleDocumentInputChange}
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                required
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Drug license expiry date
+              </p>
+            </div>
+          </div>
+
           {/* Pharmacist Registration Number */}
           <div className="space-y-2">
             <h4 className="text-sm font-medium text-gray-700 mb-1">
@@ -828,6 +889,26 @@ const CombinedDocumentStoreSetup: React.FC<CombinedComponentProps> = ({
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+
+          {/* Pharmacist Expiry Date */}
+          <div className="space-y-2">
+            <h4 className="text-sm font-medium text-gray-700 mb-1">
+              Pharmacist Certificate Expiry Date <span className="text-red-500">*</span>
+            </h4>
+            <div className="w-full md:w-1/2">
+              <input
+                type="date"
+                name="pharmacist_expiry_date"
+                value={documents.pharmacist_expiry_date}
+                onChange={handleDocumentInputChange}
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                required
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Pharmacist certificate expiry date
+              </p>
             </div>
           </div>
 
@@ -928,87 +1009,84 @@ const CombinedDocumentStoreSetup: React.FC<CombinedComponentProps> = ({
               )}
             </div>
           </div>
-        </div>
-      )}
-
-      {/* GST (for all businesses except Pharma where it might be optional) */}
-      {!isPharmaBusiness() && (
-        <div className="space-y-2">
-          <h4 className="text-sm font-medium text-gray-700 mb-1">
-            GST Certificate (Optional)
-          </h4>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
+          
+          {/* FSSAI Expiry Date */}
+          <div className="space-y-2">
+            <h4 className="text-sm font-medium text-gray-700 mb-1">
+              FSSAI Expiry Date <span className="text-red-500">*</span>
+            </h4>
+            <div className="w-full md:w-1/2">
               <input
-                type="text"
-                name="gst_number"
-                value={documents.gst_number}
+                type="date"
+                name="fssai_expiry_date"
+                value={documents.fssai_expiry_date}
                 onChange={handleDocumentInputChange}
-                placeholder="GST Number"
                 className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                required
               />
-              <p className="text-xs text-gray-500 mt-2">
-                Required for businesses with turnover above ₹20 lakhs
+              <p className="text-xs text-gray-500 mt-1">
+                FSSAI license expiry date (mandatory)
               </p>
-            </div>
-            <div className="flex items-start gap-3">
-              <input
-                type="file"
-                ref={fileInputRefs.gst}
-                onChange={(e) => handleFileChange(e, 'gst_image')}
-                accept=".jpg,.jpeg,.png,.pdf"
-                className="hidden"
-              />
-              <button
-                type="button"
-                onClick={() => triggerFileInput(fileInputRefs.gst)}
-                className="px-3 py-2 text-sm border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-blue-500 hover:text-blue-600 hover:bg-blue-50"
-              >
-                {documents.gst_image ? 'Change File' : 'Upload Certificate'}
-              </button>
-              {documents.gst_image && (
-                <div className="flex-1">
-                  <div className="flex items-center justify-between px-2 py-1 border border-green-200 rounded-lg bg-green-50">
-                    <span className="text-xs text-gray-600 truncate max-w-[120px]">
-                      {documents.gst_image?.name}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => removeFile('gst_image')}
-                      className="text-red-500 hover:text-red-700 text-xs"
-                      title="Remove"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                </div>
-              )}
             </div>
           </div>
         </div>
       )}
 
-      {/* Expiry Date (for all businesses) */}
+      {/* GST Certificate (Optional) */}
       <div className="space-y-2">
-        <h4 className="text-sm font-medium text-gray-700 mb-1">Document Expiry Date</h4>
-        <div className="w-full md:w-1/2">
-          <input
-            type="date"
-            name="expiry_date"
-            value={documents.expiry_date}
-            onChange={handleDocumentInputChange}
-            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-          />
-          <p className="text-xs text-gray-500 mt-1">
-            For documents with expiry (FSSAI, Drug License, etc.)
-          </p>
+        <h4 className="text-sm font-medium text-gray-700 mb-1">GST Certificate (Optional)</h4>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <input
+              type="text"
+              name="gst_number"
+              value={documents.gst_number}
+              onChange={handleDocumentInputChange}
+              placeholder="GST Number"
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+            <p className="text-xs text-gray-500 mt-2">Optional for non-GST businesses</p>
+          </div>
+          <div className="flex items-start gap-3">
+            <input
+              type="file"
+              ref={fileInputRefs.gst}
+              onChange={(e) => handleFileChange(e, 'gst_image')}
+              accept=".jpg,.jpeg,.png,.pdf"
+              className="hidden"
+            />
+            <button
+              type="button"
+              onClick={() => triggerFileInput(fileInputRefs.gst)}
+              className="px-3 py-2 text-sm border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-blue-500 hover:text-blue-600 hover:bg-blue-50"
+            >
+              {documents.gst_image ? 'Change File' : 'Upload Certificate'}
+            </button>
+            {documents.gst_image && (
+              <div className="flex-1">
+                <div className="flex items-center justify-between px-2 py-1 border border-green-200 rounded-lg bg-green-50">
+                  <span className="text-xs text-gray-600 truncate max-w-[120px]">
+                    {documents.gst_image?.name}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => removeFile('gst_image')}
+                    className="text-red-500 hover:text-red-700 text-xs"
+                    title="Remove"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
       
       <div className="bg-blue-50 p-2 rounded-lg border border-blue-100">
         <div className="flex items-start gap-3">
           <svg className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
           </svg>
           <div>
             <p className="text-sm text-blue-800 font-medium">Important Information</p>
@@ -1025,6 +1103,145 @@ const CombinedDocumentStoreSetup: React.FC<CombinedComponentProps> = ({
     </div>
   );
 
+  const renderOtherDocumentsSection = () => (
+    <div className="space-y-3">
+      <div className="bg-blue-50 p-2 rounded-lg border border-blue-100">
+        <div className="flex items-start gap-3">
+          <svg className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+          </svg>
+          <div>
+            <p className="text-sm text-blue-800 font-medium">Other Documents (Optional)</p>
+            <p className="text-xs text-blue-600 mt-1">Upload any additional documents for verification. None of these fields are mandatory.</p>
+          </div>
+        </div>
+      </div>
+      
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Document Type</label>
+          <input
+            type="text"
+            name="other_document_type"
+            value={documents.other_document_type}
+            onChange={handleDocumentInputChange}
+            placeholder="e.g. Rent Agreement, NOC"
+            className="w-full px-4 py-3 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium"
+            maxLength={50}
+            autoComplete="off"
+          />
+          <p className="text-xs text-gray-500 mt-1">Type of additional document</p>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Document Number</label>
+          <input
+            type="text"
+            name="other_document_number"
+            value={documents.other_document_number}
+            onChange={handleDocumentInputChange}
+            placeholder="Enter document number"
+            className="w-full px-4 py-3 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium"
+            maxLength={30}
+            autoComplete="off"
+          />
+          <p className="text-xs text-gray-500 mt-1">Document identification number</p>
+        </div>
+      </div>
+      
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Document Name</label>
+          <input
+            type="text"
+            name="other_document_name"
+            value={documents.other_document_name}
+            onChange={handleDocumentInputChange}
+            placeholder="Enter document name"
+            className="w-full px-4 py-3 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium"
+            maxLength={50}
+            autoComplete="off"
+          />
+          <p className="text-xs text-gray-500 mt-1">Name of the document</p>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Expiry Date (if applicable)</label>
+          <input
+            type="date"
+            name="other_document_expiry_date"
+            value={documents.other_document_expiry_date}
+            onChange={handleDocumentInputChange}
+            className="w-full px-4 py-3 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium"
+          />
+          <p className="text-xs text-gray-500 mt-1">For documents with expiry date</p>
+        </div>
+      </div>
+      
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Document File</label>
+        <div className="flex items-start gap-3">
+          <input
+            type="file"
+            ref={fileInputRefs.otherDoc}
+            onChange={(e) => handleFileChange(e, 'other_document_file')}
+            accept=".jpg,.jpeg,.png,.pdf"
+            className="hidden"
+          />
+          <button
+            type="button"
+            onClick={() => triggerFileInput(fileInputRefs.otherDoc)}
+            className="px-4 py-3 text-sm border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-blue-500 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+          >
+            {documents.other_document_file ? 'Change File' : 'Upload Document File'}
+          </button>
+          {documents.other_document_file && (
+            <div className="flex-1">
+              <div className="flex items-center justify-between px-3 py-2 border border-green-200 rounded-lg bg-green-50">
+                <div className="flex items-center gap-3">
+                  <div className="p-1.5 bg-green-100 rounded">
+                    <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-800 truncate max-w-[180px]">
+                      {documents.other_document_file?.name}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {documents.other_document_file ? ((documents.other_document_file.size / 1024 / 1024).toFixed(2) + ' MB') : ''}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removeFile('other_document_file')}
+                  className="text-red-500 hover:text-red-700"
+                  title="Remove"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+        <p className="text-xs text-gray-500 mt-2">JPG, PNG or PDF • Max 5MB (Optional)</p>
+      </div>
+      
+      <div className="bg-amber-50 p-2 rounded-lg border border-amber-100">
+        <div className="flex items-start gap-3">
+          <svg className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+          </svg>
+          <div>
+            <p className="text-sm text-amber-800 font-medium">Note</p>
+            <p className="text-xs text-amber-600 mt-1">
+              All fields in this section are optional. You can skip this section entirely if you don't have additional documents to upload.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
   const renderDocumentStepContent = () => {
     switch (activeSection) {
       case 'pan':
@@ -1033,6 +1250,8 @@ const CombinedDocumentStoreSetup: React.FC<CombinedComponentProps> = ({
         return renderAadharSection();
       case 'optional':
         return renderOptionalSection();
+      case 'other':
+        return renderOtherDocumentsSection();
       default:
         return renderPanSection();
     }
@@ -1068,13 +1287,16 @@ const CombinedDocumentStoreSetup: React.FC<CombinedComponentProps> = ({
           </div>
 
           <div className="flex justify-center gap-1 mb-2 px-4">
-            {['pan', 'aadhar', 'optional'].map((section) => (
+            {['pan', 'aadhar', 'optional', 'other'].map((section) => (
               <button
                 key={section}
-                onClick={() => setActiveSection(section as 'pan' | 'aadhar' | 'optional')}
+                onClick={() => setActiveSection(section as 'pan' | 'aadhar' | 'optional' | 'other')}
                 className={`px-3 py-1 rounded-lg text-sm font-medium border ${activeSection === section ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300'} transition-all`}
               >
-                {section === 'pan' ? 'PAN' : section === 'aadhar' ? 'Aadhar' : 'Optional'}
+                {section === 'pan' ? 'PAN' : 
+                 section === 'aadhar' ? 'Aadhar' : 
+                 section === 'optional' ? 'Business Docs' : 
+                 'Other Docs'}
               </button>
             ))}
           </div>
@@ -1097,7 +1319,7 @@ const CombinedDocumentStoreSetup: React.FC<CombinedComponentProps> = ({
                 onClick={handleDocumentSaveAndContinue}
                 className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg font-medium border border-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition"
               >
-                Save & Continue
+                {activeSection === 'other' ? 'Complete Documents' : 'Save & Continue'}
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                 </svg>
@@ -1292,7 +1514,7 @@ const CombinedDocumentStoreSetup: React.FC<CombinedComponentProps> = ({
                     className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
                   />
                   <div>
-                    <div className="font-medium text-gray-700">Pure Veg</div>
+                    <div className="font-medium text-gray-700">Pure Vegetarian</div>
                     <div className="text-xs text-gray-500">Serves only vegetarian food</div>
                   </div>
                 </label>
