@@ -16,11 +16,11 @@ export const MXLayoutWhite: React.FC<MXLayoutWhiteProps> = ({
   restaurantId
 }) => {
   return (
-    <div className="flex h-screen bg-white">
+    <div className="flex bg-white min-h-0 h-auto">
       <MXSidebarWhite restaurantName={restaurantName} restaurantId={restaurantId} />
-      <main className="flex-1 md:ml-64 overflow-auto hide-scrollbar">
+      <main className="flex-1 md:ml-64 overflow-auto hide-scrollbar" style={{ height: '100vh', minHeight: 0 }}>
         {/* <UserHeader /> removed as per request */}
-        <div className="min-h-screen bg-white">
+        <div className="bg-white min-h-0 h-auto">
           {children}
         </div>
       </main>

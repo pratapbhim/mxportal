@@ -17,7 +17,7 @@ export const fetchVerificationStatusCounts = async () => {
 };
 // src/lib/database.ts
 
-import { supabase } from './supabase'
+import { supabase, supabaseAdmin } from './supabase'
 import { FoodOrder, OrderStats } from './types'
 import { MerchantStore } from './types'
 
@@ -95,12 +95,32 @@ export const registerStore = async (store: Partial<MerchantStore>): Promise<{ da
 
 export const updateStoreInfo = async (storeId: string, updates: Partial<MerchantStore>): Promise<boolean> => {
   try {
+    // Only allow fields that exist in the DB schema
+    const allowedFields = [
+      'store_name', 'store_display_name', 'store_description', 'store_email', 'store_phones',
+      'full_address', 'landmark', 'city', 'state', 'postal_code', 'country', 'latitude', 'longitude',
+      'logo_url', 'banner_url', 'gallery_images', 'cuisine_types', 'food_categories',
+      'avg_preparation_time_minutes', 'min_order_amount', 'delivery_radius_km', 'is_pure_veg',
+      'accepts_online_payment', 'accepts_cash', 'status', 'approval_status', 'approval_reason',
+      'approved_by', 'approved_at', 'rejected_reason', 'current_onboarding_step', 'onboarding_completed',
+      'onboarding_completed_at', 'is_active', 'is_accepting_orders', 'is_available', 'last_activity_at',
+      'deleted_at', 'deleted_by', 'delist_reason', 'delisted_at', 'created_by', 'updated_by',
+      'store_type', 'operational_status', 'parent_merchant_id', 'am_name', 'am_mobile', 'am_email', 'owner_name',
+      'gst_number', 'pan_number', 'aadhar_number', 'fssai_number', 'bank_account_holder', 'bank_account_number', 'bank_ifsc', 'bank_name', 'ads_images'
+    ];
+    const sanitized: Record<string, any> = {};
+    for (const key of allowedFields) {
+      if (Object.prototype.hasOwnProperty.call(updates, key)) {
+        // Remove undefined values, but allow null for nullable fields
+        if (updates[key] !== undefined) {
+          sanitized[key] = updates[key];
+        }
+      }
+    }
+    sanitized.updated_at = new Date().toISOString();
     const { error } = await supabaseAdmin
       .from('merchant_stores')
-      .update({
-        ...updates,
-        updated_at: new Date().toISOString(),
-      })
+      .update(sanitized)
       .eq('store_id', storeId);
     if (error) throw error;
     return true;

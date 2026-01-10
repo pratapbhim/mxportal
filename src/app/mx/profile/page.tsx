@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { MXLayoutWhite } from "@/components/MXLayoutWhite";
 import { fetchRestaurantById as fetchStoreById, updateStoreInfo } from "@/lib/database";
+import { uploadImageToR2 } from "@/lib/uploadImageToR2";
 import { MerchantStore } from "@/lib/merchantStore";
 import { Toaster, toast } from "sonner";
 import { 
@@ -111,23 +112,22 @@ function OperatingDaysCard({ storeId }: { storeId: string | null }) {
       <div className="grid grid-cols-1 gap-2">
         {days.map((day: any) => (
           <div key={day.day_label} className="flex items-center justify-between text-xs py-1 px-2 rounded border border-gray-100 bg-white">
-            {/* यहाँ text-gray-900 या text-gray-800 add करें */}
             <span className="font-medium w-16 text-gray-900">{abbreviateDayLabel(day.day_label)}</span>
             {day.open ? (
               <span className="text-green-700 font-semibold">Open</span>
             ) : (
               <span className="text-red-500 font-semibold">Closed</span>
             )}
-            <span className="text-gray-700">
+            <span className="text-gray-700 flex flex-col items-start min-w-[120px]">
               {day.open && (
                 <>
                   {formatSlot(day.slot1_start, day.slot1_end) && (
-                    <span>{formatSlot(day.slot1_start, day.slot1_end)}</span>
+                    <span className="text-xs leading-tight">{formatSlot(day.slot1_start, day.slot1_end)}</span>
                   )}
                   {formatSlot(day.slot2_start, day.slot2_end) && (
-                    <span className="ml-2">{formatSlot(day.slot2_start, day.slot2_end)}</span>
+                    <span className="text-xs leading-tight mt-0.5">{formatSlot(day.slot2_start, day.slot2_end)}</span>
                   )}
-                  <span className="ml-2 text-xs text-gray-500">({minutesToHours(day.total_duration_minutes)})</span>
+                  <span className="text-xs text-gray-500 mt-0.5">({minutesToHours(day.total_duration_minutes)})</span>
                 </>
               )}
             </span>
@@ -187,7 +187,8 @@ export default function ProfilePage() {
         store_email: editData.store_email,
         store_phones: editData.store_phones,
         store_description: editData.store_description,
-        cuisine_type: editData.cuisine_type,
+        cuisine_types: editData.cuisine_types,
+        food_categories: editData.food_categories,
         full_address: editData.full_address,
         city: editData.city,
         state: editData.state,
@@ -203,16 +204,11 @@ export default function ProfilePage() {
         bank_account_number: editData.bank_account_number,
         bank_ifsc: editData.bank_ifsc,
         bank_name: editData.bank_name,
-        opening_time: editData.opening_time,
-        closing_time: editData.closing_time,
-        closed_days: editData.closed_days,
-        avg_delivery_time_minutes: editData.avg_delivery_time_minutes,
         min_order_amount: editData.min_order_amount,
         am_name: editData.am_name,
         am_mobile: editData.am_mobile,
         am_email: editData.am_email,
       });
-
       setStore(editData);
       setEditingField(null);
       toast.success("Profile updated successfully");
@@ -224,35 +220,47 @@ export default function ProfilePage() {
   };
 
   /* ===== IMAGE UPLOAD HANDLERS ===== */
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'banner' | 'ads') => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'banner' | 'ads' | 'logo' | 'gallery') => {
     const files = Array.from(e.target.files || []);
     if (!files.length || !storeId) return;
 
     setUploadingImages(files.map(file => URL.createObjectURL(file)));
 
     try {
-      const uploadPromises = files.map(async (file) => {
-        const reader = new FileReader();
-        return new Promise<string>((resolve) => {
-          reader.onloadend = () => {
-            resolve(reader.result as string);
-          };
-          reader.readAsDataURL(file);
-        });
-      });
-
-      const base64Images = await Promise.all(uploadPromises);
-
       if (type === 'banner') {
-        // Update store banner (single image)
-        await updateStoreInfo(storeId, { store_banner_url: base64Images[0] });
-        setStore(r => r ? { ...r, store_banner_url: base64Images[0] } : r);
-        setEditData(r => r ? { ...r, store_banner_url: base64Images[0] } : r);
+        // Only one banner image
+        const file = files[0];
+        const signedUrl = await uploadImageToR2(file, 'banners', storeId, 'merchant-assets');
+        if (!signedUrl) throw new Error('Banner upload failed');
+        await updateStoreInfo(storeId, { banner_url: signedUrl });
+        setStore(r => r ? { ...r, banner_url: signedUrl } : r);
+        setEditData(r => r ? { ...r, banner_url: signedUrl } : r);
         toast.success("Store banner updated!");
+      } else if (type === 'logo') {
+        // Only one logo image
+        const file = files[0];
+        const signedUrl = await uploadImageToR2(file, 'logos', storeId, 'merchant-assets');
+        if (!signedUrl) throw new Error('Logo upload failed');
+        await updateStoreInfo(storeId, { logo_url: signedUrl });
+        setStore(r => r ? { ...r, logo_url: signedUrl } : r);
+        setEditData(r => r ? { ...r, logo_url: signedUrl } : r);
+        toast.success("Logo updated!");
+      } else if (type === 'gallery') {
+        // Multiple gallery images
+        const uploadGallery = await Promise.all(files.map(file => uploadImageToR2(file, 'gallery', storeId, 'merchant-assets')));
+        const validUrls = uploadGallery.filter(Boolean) as string[];
+        const currentGallery = store?.gallery_images || [];
+        const newGallery = [...currentGallery, ...validUrls].slice(0, 10); // Limit gallery size
+        await updateStoreInfo(storeId, { gallery_images: newGallery });
+        setStore(r => r ? { ...r, gallery_images: newGallery } : r);
+        setEditData(r => r ? { ...r, gallery_images: newGallery } : r);
+        toast.success("Gallery images updated!");
       } else if (type === 'ads') {
-        // Update ads images (multiple images)
+        // Multiple ads images
+        const uploadAds = await Promise.all(files.map(file => uploadImageToR2(file, 'ads', storeId, 'merchant-assets')));
+        const validUrls = uploadAds.filter(Boolean) as string[];
         const currentAds = store?.ads_images || [];
-        const newAds = [...currentAds, ...base64Images].slice(0, 5); // Keep max 5 images
+        const newAds = [...currentAds, ...validUrls].slice(0, 5); // Keep max 5 images
         await updateStoreInfo(storeId, { ads_images: newAds });
         setStore(r => r ? { ...r, ads_images: newAds } : r);
         setEditData(r => r ? { ...r, ads_images: newAds } : r);
@@ -260,7 +268,7 @@ export default function ProfilePage() {
       }
 
       setUploadingImages([]);
-      if (type === 'ads') {
+      if (type === 'ads' || type === 'gallery') {
         setShowImageUploadModal(false);
       }
     } catch (error) {
@@ -369,644 +377,659 @@ export default function ProfilePage() {
         restaurantName={store.store_name}
         restaurantId={store.store_id}
       >
-        <div className="min-h-screen bg-gray-50 p-4 hide-scrollbar">
-          <div className="max-w-7xl mx-auto">
-            {/* HEADER */}
-            <div className="mb-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h1 className="text-2xl font-bold text-gray-900">Merchant Profile</h1>
-                  <p className="text-sm text-gray-600 mt-0.5">Manage your restaurant details</p>
+        <div className="bg-gray-50 hide-scrollbar overflow-y-auto" style={{ minHeight: 0, height: 'auto' }}>
+          {/* MAIN CONTENT CONTAINER - Prevents extra scroll beyond content */}
+          <div>
+            <div className="p-4">
+              <div className="max-w-7xl mx-auto">
+                {/* HEADER */}
+                <div className="mb-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h1 className="text-2xl font-bold text-gray-900">Merchant Profile</h1>
+                      <p className="text-sm text-gray-600 mt-0.5">Manage your restaurant details</p>
+                    </div>
+                    <button
+                      onClick={() => setConfirmSave(true)}
+                      className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium text-sm"
+                    >
+                      Save Changes
+                    </button>
+                  </div>
                 </div>
-                <button
-                  onClick={() => setConfirmSave(true)}
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium text-sm"
+
+                {/* MAIN CARD */}
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 mb-6">
+                  {/* STORE HEADER */}
+                  <div className="bg-gradient-to-r from-blue-50 to-indigo-50 px-5 py-4 border-b border-gray-200">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="relative">
+                          <div className="w-12 h-12 bg-blue-600 text-white rounded-lg flex items-center justify-center text-lg font-bold">
+                            {storeInitial}
+                          </div>
+                          {isVerified && (
+                            <div className="absolute -bottom-1 -right-1 bg-green-500 text-white p-1 rounded-full">
+                              <CheckCircle size={12} />
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h2 className="text-lg font-bold text-gray-900">
+                              {store.store_name}
+                            </h2>
+                            <span className="text-xs text-gray-600">
+                              • {formatArray(store.cuisine_type)}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-3 text-sm text-gray-600 mt-1">
+                            <span className="flex items-center gap-1">
+                              <MapPin size={12} />
+                              {store.city}, {store.state}
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <Clock size={12} />
+                              {formatTime(store.opening_time)} - {formatTime(store.closing_time)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {/* QUICK STATS (with extra fields) */}
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <div className="text-center px-3 py-1.5 bg-white rounded-lg border border-gray-200 min-w-[90px]">
+                          <div className="text-sm font-bold text-gray-900">{store.min_order_amount || 0}</div>
+                          <div className="text-xs text-gray-500">Min Order</div>
+                        </div>
+                        <div className="text-center px-3 py-1.5 bg-white rounded-lg border border-gray-200 min-w-[90px]">
+                          <div className="text-sm font-bold text-gray-900">{(store.avg_preparation_time_minutes ?? store.avg_delivery_time_minutes) || 0}m</div>
+                          <div className="text-xs text-gray-500">Prep Time</div>
+                        </div>
+                        <div className="text-center px-3 py-1.5 bg-white rounded-lg border border-gray-200 min-w-[90px]">
+                          <div className="text-sm font-bold text-gray-900">{store.delivery_radius_km ?? '—'}</div>
+                          <div className="text-xs text-gray-500">Delivery Radius</div>
+                        </div>
+                        <div className="text-center px-3 py-1.5 bg-white rounded-lg border border-gray-200 min-w-[120px]">
+                          <div className="text-sm font-bold text-gray-900">{store.parent_merchant_id || '—'}</div>
+                          <div className="text-xs text-gray-500">Parent Merchant ID</div>
+                        </div>
+                        <div className="text-center px-3 py-1.5 bg-white rounded-lg border border-gray-200 min-w-[90px]">
+                          <div className="text-sm font-bold text-gray-900">
+                            {store.approval_status === 'APPROVED' ? 'Verified' : 'Pending'}
+                          </div>
+                          <div className="text-xs text-gray-500">Status</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* CONTENT GRID */}
+                  <div className="p-5">
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                      
+                      {/* COLUMN 1: STORE DETAILS */}
+                      <div className="space-y-4">
+                        <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                          <div className="flex items-center justify-between mb-2">
+                            <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2 m-0">
+                              <Building size={16} className="text-blue-600" />
+                              Store Details
+                            </h3>
+                            <label className="inline-flex items-center cursor-pointer ml-2">
+                              <span className="text-xs font-medium text-gray-700 mr-2">Pure Veg</span>
+                              <input
+                                type="checkbox"
+                                checked={!!editData.is_pure_veg}
+                                onChange={async (e) => {
+                                  const newValue = e.target.checked;
+                                  setEditData({ ...editData, is_pure_veg: newValue });
+                                  setStore({ ...store, is_pure_veg: newValue });
+                                  try {
+                                    await updateStoreInfo(storeId, { is_pure_veg: newValue });
+                                    toast.success(`Store marked as ${newValue ? 'Pure Veg' : 'Not Pure Veg'}`);
+                                  } catch (err) {
+                                    toast.error('Failed to update Pure Veg status');
+                                  }
+                                }}
+                                className="sr-only peer"
+                              />
+                              <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-500 rounded-full peer peer-checked:bg-green-500 transition-all relative">
+                                <div className={`absolute left-1 top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${editData.is_pure_veg ? 'translate-x-4' : ''}`}></div>
+                              </div>
+                            </label>
+                          </div>
+                          <div className="space-y-2 text-sm">
+                            <CompactEditableRow
+                              label="Store Name"
+                              value={editData.store_name}
+                              isEditing={editingField === 'store_name'}
+                              onEdit={() => startEditing('store_name')}
+                              onSave={stopEditing}
+                              onChange={(v) => setEditData({ ...editData, store_name: v })}
+                            />
+                            <CompactLockedRow
+                              label="Store Display Name"
+                              value={store.store_display_name || '—'}
+                            />
+                            <CompactLockedRow
+                              label="Cuisine Types"
+                              value={Array.isArray(store.cuisine_types) ? store.cuisine_types.join(', ') : (store.cuisine_types || '—')}
+                            />
+                            <CompactLockedRow
+                              label="Food Categories"
+                              value={Array.isArray(store.food_categories) ? store.food_categories.join(', ') : (store.food_categories || '—')}
+                            />
+                            <CompactEditableRow
+                              label="Store Email"
+                              value={editData.store_email}
+                              isEditing={editingField === 'store_email'}
+                              onEdit={() => startEditing('store_email')}
+                              onSave={stopEditing}
+                              onChange={(v) => setEditData({ ...editData, store_email: v })}
+                            />
+                            <CompactEditableRow
+                              label="Store Phones"
+                              value={formatArray(editData.store_phones)}
+                              isEditing={editingField === 'store_phones'}
+                              onEdit={() => startEditing('store_phones')}
+                              onSave={stopEditing}
+                              onChange={(v) => setEditData({ ...editData, store_phones: v.split(',').map(s => s.trim()) })}
+                            />
+                            <CompactEditableRow
+                              label="Description"
+                              value={editData.store_description}
+                              isEditing={editingField === 'store_description'}
+                              onEdit={() => startEditing('store_description')}
+                              onSave={stopEditing}
+                              onChange={(v) => setEditData({ ...editData, store_description: v })}
+                              multiline
+                            />
+                          </div>
+                        </div>
+
+                        <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                          <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                            <MapPin size={16} className="text-blue-600" />
+                            Location
+                          </h3>
+                          <div className="space-y-3">
+                            <CompactEditableRow
+                              label="Full Address"
+                              value={editData.full_address}
+                              isEditing={editingField === 'full_address'}
+                              onEdit={() => startEditing('full_address')}
+                              onSave={stopEditing}
+                              onChange={(v) => setEditData({ ...editData, full_address: v })}
+                              multiline
+                            />
+                            <CompactEditableRow
+                              label="City"
+                              value={editData.city}
+                              isEditing={editingField === 'city'}
+                              onEdit={() => startEditing('city')}
+                              onSave={stopEditing}
+                              onChange={(v) => setEditData({ ...editData, city: v })}
+                            />
+                            <CompactEditableRow
+                              label="State"
+                              value={editData.state}
+                              isEditing={editingField === 'state'}
+                              onEdit={() => startEditing('state')}
+                              onSave={stopEditing}
+                              onChange={(v) => setEditData({ ...editData, state: v })}
+                            />
+                            <CompactEditableRow
+                              label="Landmark"
+                              value={editData.landmark}
+                              isEditing={editingField === 'landmark'}
+                              onEdit={() => startEditing('landmark')}
+                              onSave={stopEditing}
+                              onChange={(v) => setEditData({ ...editData, landmark: v })}
+                            />
+                            <CompactEditableRow
+                              label="Postal Code"
+                              value={editData.postal_code}
+                              isEditing={editingField === 'postal_code'}
+                              onEdit={() => startEditing('postal_code')}
+                              onSave={stopEditing}
+                              onChange={(v) => setEditData({ ...editData, postal_code: v })}
+                            />
+                            <div className="grid grid-cols-2 gap-2">
+                              <CompactEditableRow
+                                label="Latitude"
+                                value={editData.latitude}
+                                isEditing={editingField === 'latitude'}
+                                onEdit={() => startEditing('latitude')}
+                                onSave={stopEditing}
+                                onChange={(v) => setEditData({ ...editData, latitude: parseFloat(v) })}
+                              />
+                              <CompactEditableRow
+                                label="Longitude"
+                                value={editData.longitude}
+                                isEditing={editingField === 'longitude'}
+                                onEdit={() => startEditing('longitude')}
+                                onSave={stopEditing}
+                                onChange={(v) => setEditData({ ...editData, longitude: parseFloat(v) })}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* COLUMN 2: TIMINGS & OPERATIONS */}
+                      <div className="space-y-4">
+                        <OperatingDaysCard storeId={storeId} />
+
+                        <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                          <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                            <User size={16} className="text-blue-600" />
+                            Area Manager
+                          </h3>
+                          <div className="space-y-3">
+                            <CompactEditableRow
+                              label="AM Name"
+                              value={editData.am_name}
+                              isEditing={editingField === 'am_name'}
+                              onEdit={() => startEditing('am_name')}
+                              onSave={stopEditing}
+                              onChange={(v) => setEditData({ ...editData, am_name: v })}
+                            />
+                            <CompactEditableRow
+                              label="AM Mobile"
+                              value={editData.am_mobile}
+                              isEditing={editingField === 'am_mobile'}
+                              onEdit={() => startEditing('am_mobile')}
+                              onSave={stopEditing}
+                              onChange={(v) => setEditData({ ...editData, am_mobile: v })}
+                            />
+                            <CompactEditableRow
+                              label="AM Email"
+                              value={editData.am_email}
+                              isEditing={editingField === 'am_email'}
+                              onEdit={() => startEditing('am_email')}
+                              onSave={stopEditing}
+                              onChange={(v) => setEditData({ ...editData, am_email: v })}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                          <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                            <Activity size={16} className="text-blue-600" />
+                            Store Info
+                          </h3>
+                          <div className="grid grid-cols-2 gap-2 text-xs">
+                            <div className="flex items-center gap-2">
+                              <Hash size={12} className="text-gray-500" />
+                              <span className="text-gray-800">Store ID:</span>
+                              <span className="font-semibold text-gray-900">{store.store_id}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Calendar size={12} className="text-gray-500" />
+                              <span className="text-gray-800">Created:</span>
+                              <span className="font-semibold text-gray-900">{formatDate(store.created_at)}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Activity size={12} className="text-gray-500" />
+                              <span className="text-gray-800">Status:</span>
+                              <span className={`font-semibold ${
+                                store.approval_status === 'APPROVED' ? 'text-green-600' :
+                                store.approval_status === 'REJECTED' ? 'text-red-600' :
+                                'text-yellow-600'
+                              }`}>
+                                {store.approval_status || 'SUBMITTED'}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Activity size={12} className="text-gray-500" />
+                              <span className="text-gray-800">Active:</span>
+                              <label className="inline-flex items-center cursor-pointer ml-2">
+                                <input
+                                  type="checkbox"
+                                  checked={!!editData && editData.status === 'ACTIVE'}
+                                  onChange={async (e) => {
+                                    if (!editData || !store || !storeId) return;
+                                    const prevStatus = editData.status;
+                                    const prevOperational = editData.operational_status;
+                                    // Use correct enum value for status and operational_status
+                                    const newStatus = e.target.checked ? 'ACTIVE' : 'INACTIVE';
+                                    const newOperational = e.target.checked ? 'OPEN' : 'CLOSED';
+                                    // Optimistically update UI
+                                    setEditData({ ...editData, status: newStatus, operational_status: newOperational });
+                                    setStore({ ...store, status: newStatus, operational_status: newOperational });
+                                    try {
+                                      const ok = await updateStoreInfo(storeId, { status: newStatus, operational_status: newOperational });
+                                      if (!ok) throw new Error('Update failed');
+                                      toast.success(`Store is now ${newStatus} (${newOperational})`);
+                                    } catch (err) {
+                                      // Revert UI if update fails
+                                      setEditData({ ...editData, status: prevStatus, operational_status: prevOperational });
+                                      setStore({ ...store, status: prevStatus, operational_status: prevOperational });
+                                      toast.error('Failed to update store status');
+                                    }
+                                  }}
+                                  className="sr-only peer"
+                                />
+                                <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-500 rounded-full peer peer-checked:bg-green-500 transition-all relative">
+                                  <div className={`absolute left-1 top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${editData.status === 'ACTIVE' ? 'translate-x-4' : ''}`}></div>
+                                </div>
+                              </label>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* COLUMN 3: DOCUMENTS & IMAGES */}
+                      <div className="space-y-4">
+                        <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                          <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                            <Shield size={16} className="text-blue-600" />
+                            Legal Documents
+                          </h3>
+                          <div className="space-y-3">
+                            <CompactLockedRow
+                              label="GST Number"
+                              value={store.gst_number}
+                            />
+                            <CompactLockedRow
+                              label="PAN Number"
+                              value={store.pan_number}
+                            />
+                            <CompactLockedRow
+                              label="Aadhar Number"
+                              value={store.aadhar_number}
+                            />
+                            <CompactLockedRow
+                              label="FSSAI Number"
+                              value={store.fssai_number}
+                            />
+                            {store.gst_image_url && (
+                              <div>
+                                <div className="text-xs font-medium text-gray-600 mb-1">GST Image</div>
+                                <img src={store.gst_image_url} alt="GST" className="h-20 rounded border" />
+                              </div>
+                            )}
+                            {store.pan_image_url && (
+                              <div>
+                                <div className="text-xs font-medium text-gray-600 mb-1">PAN Image</div>
+                                <img src={store.pan_image_url} alt="PAN" className="h-20 rounded border" />
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="bg-gray-50 rounded-lg p-2 border border-gray-200">
+                          <h3 className="text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                            <Banknote size={16} className="text-blue-600" />
+                            Bank Details
+                          </h3>
+                          <div className="space-y-1 text-sm">
+                            <CompactLockedRow
+                              label="Account Holder"
+                              value={store.bank_account_holder}
+                            />
+                            <CompactLockedRow
+                              label="Account Number"
+                              value={store.bank_account_number}
+                            />
+                            <CompactLockedRow
+                              label="IFSC Code"
+                              value={store.bank_ifsc}
+                            />
+                            <CompactLockedRow
+                              label="Bank Name"
+                              value={store.bank_name}
+                            />
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-medium text-gray-900">Accepts Online Payment</span>
+                              <label className="inline-flex items-center cursor-pointer ml-2">
+                                <input
+                                  type="checkbox"
+                                  checked={!!editData.accepts_online_payment}
+                                  onChange={async (e) => {
+                                    const newValue = e.target.checked;
+                                    setEditData({ ...editData, accepts_online_payment: newValue });
+                                    setStore({ ...store, accepts_online_payment: newValue });
+                                    try {
+                                      await updateStoreInfo(storeId, { accepts_online_payment: newValue });
+                                      toast.success(`Accepts Online Payment: ${newValue ? 'Yes' : 'No'}`);
+                                    } catch (err) {
+                                      toast.error('Failed to update Online Payment status');
+                                    }
+                                  }}
+                                  className="sr-only peer"
+                                />
+                                <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-500 rounded-full peer peer-checked:bg-green-500 transition-all relative">
+                                  <div className={`absolute left-1 top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${editData.accepts_online_payment ? 'translate-x-4' : ''}`}></div>
+                                </div>
+                              </label>
+                            </div>
+                            <div className="flex items-center justify-between gap-2 mt-1">
+                              <span className="font-medium text-gray-900">Accepts Cash</span>
+                              <label className="inline-flex items-center cursor-pointer ml-2">
+                                <input
+                                  type="checkbox"
+                                  checked={!!editData.accepts_cash}
+                                  onChange={async (e) => {
+                                    const newValue = e.target.checked;
+                                    setEditData({ ...editData, accepts_cash: newValue });
+                                    setStore({ ...store, accepts_cash: newValue });
+                                    try {
+                                      await updateStoreInfo(storeId, { accepts_cash: newValue });
+                                      toast.success(`Accepts Cash: ${newValue ? 'Yes' : 'No'}`);
+                                    } catch (err) {
+                                      toast.error('Failed to update Cash status');
+                                    }
+                                  }}
+                                  className="sr-only peer"
+                                />
+                                <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-500 rounded-full peer peer-checked:bg-green-500 transition-all relative">
+                                  <div className={`absolute left-1 top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${editData.accepts_cash ? 'translate-x-4' : ''}`}></div>
+                                </div>
+                              </label>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* IMAGE CARDS - HORIZONTAL LAYOUT */}
+                    <div
+                      className="grid grid-cols-1 lg:grid-cols-2 gap-5 mt-5"
+                      style={{
+                        maxHeight: 'calc(100vh - 15px - 120px)', // 120px is a safe header/spacing estimate
+                        overflowY: 'auto',
+                        paddingBottom: '15px',
+                      }}
+                    >
+                      {/* STORE BANNER CARD */}
+                      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-4 border border-blue-100">
+                        <div className="flex items-center justify-between mb-3">
+                          <div>
+                            <h3 className="text-sm font-semibold text-gray-900 mb-1">
+                              Store Banner
+                            </h3>
+                            <p className="text-xs text-gray-600">
+                              Upload your store banner image
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium"
+                            onClick={() => bannerInputRef.current?.click()}
+                          >
+                            <Upload size={12} />
+                            Upload Banner
+                          </button>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            ref={bannerInputRef}
+                            style={{ display: "none" }}
+                            onChange={(e) => handleImageUpload(e, 'banner')}
+                          />
+                        </div>
+                        {store.banner_url ? (
+                          <img
+                            src={store.banner_url}
+                            alt="Store Banner"
+                            className="mt-2 rounded-lg w-full h-48 object-cover"
+                          />
+                        ) : (
+                          <div className="mt-2 h-48 bg-gray-100 rounded-lg flex items-center justify-center">
+                            <div className="text-center">
+                              <ImageIcon size={24} className="text-gray-400 mx-auto mb-2" />
+                              <p className="text-xs text-gray-500">No banner uploaded</p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* ADS IMAGES CARD */}
+                      <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg p-4 border border-green-100">
+                        <div className="flex items-center justify-between mb-3">
+                          <div>
+                            <h3 className="text-sm font-semibold text-gray-900 mb-1">
+                              Gallery Images ({store.ads_images?.length || 0}/5)
+                            </h3>
+                            <p className="text-xs text-gray-600">
+                              Upload up to 5 promotional images
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            className="flex items-center gap-1.5 bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium"
+                            onClick={() => setShowImageUploadModal(true)}
+                            disabled={(store.ads_images?.length || 0) >= 5}
+                          >
+                            <Upload size={12} />
+                            Upload Ads
+                          </button>
+                        </div>
+                        
+                        {/* ADS IMAGES GRID */}
+                        <div className="grid grid-cols-2 gap-2 mt-3">
+                          {store.ads_images?.map((img, index) => (
+                            <div key={index} className="relative group">
+                              <img
+                                src={img}
+                                alt={`Ad ${index + 1}`}
+                                className="w-full h-24 object-cover rounded-lg"
+                              />
+                              <button
+                                onClick={() => handleRemoveAdImage(index)}
+                                className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ))}
+                          {uploadingImages.map((img, index) => (
+                            <div key={`uploading-${index}`} className="relative">
+                              <img
+                                src={img}
+                                alt="Uploading..."
+                                className="w-full h-24 object-cover rounded-lg opacity-50"
+                              />
+                              <div className="absolute inset-0 flex items-center justify-center">
+                                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                              </div>
+                            </div>
+                          ))}
+                          {(!store.ads_images || store.ads_images.length === 0) && uploadingImages.length === 0 && (
+                            <div className="col-span-2 h-48 bg-gray-100 rounded-lg flex items-center justify-center">
+                              <div className="text-center">
+                                <ImageIcon size={24} className="text-gray-400 mx-auto mb-2" />
+                                <p className="text-xs text-gray-500">No ads images</p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* IMAGE UPLOAD MODAL */}
+        {showImageUploadModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">Upload Ads Images</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Upload promotional images (max 5 total). You can upload {5 - (store.ads_images?.length || 0)} more.
+              </p>
+              
+              <div className="mb-6">
+                <div className="flex items-center justify-center w-full">
+                  <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
+                    <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                      <Upload className="w-8 h-8 mb-3 text-gray-400" />
+                      <p className="mb-2 text-sm text-gray-500">
+                        <span className="font-semibold">Click to upload</span> or drag and drop
+                      </p>
+                      <p className="text-xs text-gray-500">PNG, JPG, GIF up to 10MB</p>
+                    </div>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                      ref={adsInputRef}
+                      onChange={(e) => handleImageUpload(e, 'ads')}
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <button 
+                  onClick={() => setShowImageUploadModal(false)}
+                  className="px-4 py-2 text-sm text-gray-700 hover:text-gray-900"
                 >
-                  Save Changes
+                  Cancel
+                </button>
+                <button
+                  onClick={() => adsInputRef.current?.click()}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-medium"
+                >
+                  Select Images
                 </button>
               </div>
             </div>
+          </div>
+        )}
 
-            {/* MAIN CARD */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-              {/* STORE HEADER */}
-              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 px-5 py-4 border-b border-gray-200">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="relative">
-                      <div className="w-12 h-12 bg-blue-600 text-white rounded-lg flex items-center justify-center text-lg font-bold">
-                        {storeInitial}
-                      </div>
-                      {isVerified && (
-                        <div className="absolute -bottom-1 -right-1 bg-green-500 text-white p-1 rounded-full">
-                          <CheckCircle size={12} />
-                        </div>
-                      )}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h2 className="text-lg font-bold text-gray-900">
-                          {store.store_name}
-                        </h2>
-                        <span className="text-xs text-gray-600">
-                          • {formatArray(store.cuisine_type)}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-3 text-sm text-gray-600 mt-1">
-                        <span className="flex items-center gap-1">
-                          <MapPin size={12} />
-                          {store.city}, {store.state}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Clock size={12} />
-                          {formatTime(store.opening_time)} - {formatTime(store.closing_time)}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {/* QUICK STATS (with extra fields) */}
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <div className="text-center px-3 py-1.5 bg-white rounded-lg border border-gray-200 min-w-[90px]">
-                      <div className="text-sm font-bold text-gray-900">{store.min_order_amount || 0}</div>
-                      <div className="text-xs text-gray-500">Min Order</div>
-                    </div>
-                    <div className="text-center px-3 py-1.5 bg-white rounded-lg border border-gray-200 min-w-[90px]">
-                      <div className="text-sm font-bold text-gray-900">{(store.avg_preparation_time_minutes ?? store.avg_delivery_time_minutes) || 0}m</div>
-                      <div className="text-xs text-gray-500">Prep Time</div>
-                    </div>
-                    <div className="text-center px-3 py-1.5 bg-white rounded-lg border border-gray-200 min-w-[90px]">
-                      <div className="text-sm font-bold text-gray-900">{store.delivery_radius_km ?? '—'}</div>
-                      <div className="text-xs text-gray-500">Delivery Radius</div>
-                    </div>
-                    <div className="text-center px-3 py-1.5 bg-white rounded-lg border border-gray-200 min-w-[120px]">
-                      <div className="text-sm font-bold text-gray-900">{store.parent_merchant_id || '—'}</div>
-                      <div className="text-xs text-gray-500">Parent Merchant ID</div>
-                    </div>
-                    <div className="text-center px-3 py-1.5 bg-white rounded-lg border border-gray-200 min-w-[90px]">
-                      <div className="text-sm font-bold text-gray-900">
-                        {store.approval_status === 'APPROVED' ? 'Verified' : 'Pending'}
-                      </div>
-                      <div className="text-xs text-gray-500">Status</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* CONTENT GRID */}
-              <div className="p-5">
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-                  
-                  {/* COLUMN 1: STORE DETAILS */}
-                  <div className="space-y-4">
-                    <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
-                      <div className="flex items-center justify-between mb-2">
-                        <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2 m-0">
-                          <Building size={16} className="text-blue-600" />
-                          Store Details
-                        </h3>
-                        <label className="inline-flex items-center cursor-pointer ml-2">
-                          <span className="text-xs font-medium text-gray-700 mr-2">Pure Veg</span>
-                          <input
-                            type="checkbox"
-                            checked={!!editData.is_pure_veg}
-                            onChange={async (e) => {
-                              const newValue = e.target.checked;
-                              setEditData({ ...editData, is_pure_veg: newValue });
-                              setStore({ ...store, is_pure_veg: newValue });
-                              try {
-                                await updateStoreInfo(storeId, { is_pure_veg: newValue });
-                                toast.success(`Store marked as ${newValue ? 'Pure Veg' : 'Not Pure Veg'}`);
-                              } catch (err) {
-                                toast.error('Failed to update Pure Veg status');
-                              }
-                            }}
-                            className="sr-only peer"
-                          />
-                          <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-500 rounded-full peer peer-checked:bg-green-500 transition-all relative">
-                            <div className={`absolute left-1 top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${editData.is_pure_veg ? 'translate-x-4' : ''}`}></div>
-                          </div>
-                        </label>
-                      </div>
-                      <div className="space-y-2 text-sm">
-                        <CompactEditableRow
-                          label="Store Name"
-                          value={editData.store_name}
-                          isEditing={editingField === 'store_name'}
-                          onEdit={() => startEditing('store_name')}
-                          onSave={stopEditing}
-                          onChange={(v) => setEditData({ ...editData, store_name: v })}
-                        />
-                        <CompactLockedRow
-                          label="Store Display Name"
-                          value={store.store_display_name || '—'}
-                        />
-                        <CompactLockedRow
-                          label="Cuisine Types"
-                          value={Array.isArray(store.cuisine_types) ? store.cuisine_types.join(', ') : (store.cuisine_types || '—')}
-                        />
-                        <CompactLockedRow
-                          label="Food Categories"
-                          value={Array.isArray(store.food_categories) ? store.food_categories.join(', ') : (store.food_categories || '—')}
-                        />
-                        <CompactEditableRow
-                          label="Store Email"
-                          value={editData.store_email}
-                          isEditing={editingField === 'store_email'}
-                          onEdit={() => startEditing('store_email')}
-                          onSave={stopEditing}
-                          onChange={(v) => setEditData({ ...editData, store_email: v })}
-                        />
-                        <CompactEditableRow
-                          label="Store Phones"
-                          value={formatArray(editData.store_phones)}
-                          isEditing={editingField === 'store_phones'}
-                          onEdit={() => startEditing('store_phones')}
-                          onSave={stopEditing}
-                          onChange={(v) => setEditData({ ...editData, store_phones: v.split(',').map(s => s.trim()) })}
-                        />
-                        <CompactEditableRow
-                          label="Description"
-                          value={editData.store_description}
-                          isEditing={editingField === 'store_description'}
-                          onEdit={() => startEditing('store_description')}
-                          onSave={stopEditing}
-                          onChange={(v) => setEditData({ ...editData, store_description: v })}
-                          multiline
-                        />
-                      </div>
-                    </div>
-
-                    <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                      <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                        <MapPin size={16} className="text-blue-600" />
-                        Location
-                      </h3>
-                      <div className="space-y-3">
-                        <CompactEditableRow
-                          label="Full Address"
-                          value={editData.full_address}
-                          isEditing={editingField === 'full_address'}
-                          onEdit={() => startEditing('full_address')}
-                          onSave={stopEditing}
-                          onChange={(v) => setEditData({ ...editData, full_address: v })}
-                          multiline
-                        />
-                        <CompactEditableRow
-                          label="City"
-                          value={editData.city}
-                          isEditing={editingField === 'city'}
-                          onEdit={() => startEditing('city')}
-                          onSave={stopEditing}
-                          onChange={(v) => setEditData({ ...editData, city: v })}
-                        />
-                        <CompactEditableRow
-                          label="State"
-                          value={editData.state}
-                          isEditing={editingField === 'state'}
-                          onEdit={() => startEditing('state')}
-                          onSave={stopEditing}
-                          onChange={(v) => setEditData({ ...editData, state: v })}
-                        />
-                        <CompactEditableRow
-                          label="Landmark"
-                          value={editData.landmark}
-                          isEditing={editingField === 'landmark'}
-                          onEdit={() => startEditing('landmark')}
-                          onSave={stopEditing}
-                          onChange={(v) => setEditData({ ...editData, landmark: v })}
-                        />
-                        <CompactEditableRow
-                          label="Postal Code"
-                          value={editData.postal_code}
-                          isEditing={editingField === 'postal_code'}
-                          onEdit={() => startEditing('postal_code')}
-                          onSave={stopEditing}
-                          onChange={(v) => setEditData({ ...editData, postal_code: v })}
-                        />
-                        <div className="grid grid-cols-2 gap-2">
-                          <CompactEditableRow
-                            label="Latitude"
-                            value={editData.latitude}
-                            isEditing={editingField === 'latitude'}
-                            onEdit={() => startEditing('latitude')}
-                            onSave={stopEditing}
-                            onChange={(v) => setEditData({ ...editData, latitude: parseFloat(v) })}
-                          />
-                          <CompactEditableRow
-                            label="Longitude"
-                            value={editData.longitude}
-                            isEditing={editingField === 'longitude'}
-                            onEdit={() => startEditing('longitude')}
-                            onSave={stopEditing}
-                            onChange={(v) => setEditData({ ...editData, longitude: parseFloat(v) })}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* COLUMN 2: TIMINGS & OPERATIONS */}
-                  <div className="space-y-4">
-                    <OperatingDaysCard storeId={storeId} />
-
-                    <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                      <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                        <User size={16} className="text-blue-600" />
-                        Area Manager
-                      </h3>
-                      <div className="space-y-3">
-                        <CompactEditableRow
-                          label="AM Name"
-                          value={editData.am_name}
-                          isEditing={editingField === 'am_name'}
-                          onEdit={() => startEditing('am_name')}
-                          onSave={stopEditing}
-                          onChange={(v) => setEditData({ ...editData, am_name: v })}
-                        />
-                        <CompactEditableRow
-                          label="AM Mobile"
-                          value={editData.am_mobile}
-                          isEditing={editingField === 'am_mobile'}
-                          onEdit={() => startEditing('am_mobile')}
-                          onSave={stopEditing}
-                          onChange={(v) => setEditData({ ...editData, am_mobile: v })}
-                        />
-                        <CompactEditableRow
-                          label="AM Email"
-                          value={editData.am_email}
-                          isEditing={editingField === 'am_email'}
-                          onEdit={() => startEditing('am_email')}
-                          onSave={stopEditing}
-                          onChange={(v) => setEditData({ ...editData, am_email: v })}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                      <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                        <Activity size={16} className="text-blue-600" />
-                        Store Info
-                      </h3>
-                      <div className="grid grid-cols-2 gap-2 text-xs">
-                        <div className="flex items-center gap-2">
-                          <Hash size={12} className="text-gray-500" />
-                          <span className="text-gray-800">Store ID:</span>
-                          <span className="font-semibold text-gray-900">{store.store_id}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Calendar size={12} className="text-gray-500" />
-                          <span className="text-gray-800">Created:</span>
-                          <span className="font-semibold text-gray-900">{formatDate(store.created_at)}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Activity size={12} className="text-gray-500" />
-                          <span className="text-gray-800">Status:</span>
-                          <span className={`font-semibold ${
-                            store.approval_status === 'APPROVED' ? 'text-green-600' :
-                            store.approval_status === 'REJECTED' ? 'text-red-600' :
-                            'text-yellow-600'
-                          }`}>
-                            {store.approval_status || 'SUBMITTED'}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Activity size={12} className="text-gray-500" />
-                          <span className="text-gray-800">Active:</span>
-                          <label className="inline-flex items-center cursor-pointer ml-2">
-                            <input
-                              type="checkbox"
-                              checked={!!editData && editData.status === 'ACTIVE'}
-                              onChange={async (e) => {
-                                if (!editData || !store || !storeId) return;
-                                const prevStatus = editData.status;
-                                const newStatus = e.target.checked ? 'ACTIVE' : 'inactive';
-                                // Optimistically update UI
-                                setEditData({ ...editData, status: newStatus });
-                                setStore({ ...store, status: newStatus });
-                                try {
-                                  const ok = await updateStoreInfo(storeId, { status: newStatus });
-                                  if (!ok) throw new Error('Update failed');
-                                  toast.success(`Store is now ${newStatus}`);
-                                } catch (err) {
-                                  // Revert UI if update fails
-                                  setEditData({ ...editData, status: prevStatus });
-                                  setStore({ ...store, status: prevStatus });
-                                  toast.error('Failed to update store status');
-                                }
-                              }}
-                              className="sr-only peer"
-                            />
-                            <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-500 rounded-full peer peer-checked:bg-green-500 transition-all relative">
-                              <div className={`absolute left-1 top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${editData.status === 'ACTIVE' ? 'translate-x-4' : ''}`}></div>
-                            </div>
-                          </label>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* COLUMN 3: DOCUMENTS & IMAGES */}
-                  <div className="space-y-4">
-                    <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                      <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                        <Shield size={16} className="text-blue-600" />
-                        Legal Documents
-                      </h3>
-                      <div className="space-y-3">
-                        <CompactLockedRow
-                          label="GST Number"
-                          value={store.gst_number}
-                        />
-                        <CompactLockedRow
-                          label="PAN Number"
-                          value={store.pan_number}
-                        />
-                        <CompactLockedRow
-                          label="Aadhar Number"
-                          value={store.aadhar_number}
-                        />
-                        <CompactLockedRow
-                          label="FSSAI Number"
-                          value={store.fssai_number}
-                        />
-                        {store.gst_image_url && (
-                          <div>
-                            <div className="text-xs font-medium text-gray-600 mb-1">GST Image</div>
-                            <img src={store.gst_image_url} alt="GST" className="h-20 rounded border" />
-                          </div>
-                        )}
-                        {store.pan_image_url && (
-                          <div>
-                            <div className="text-xs font-medium text-gray-600 mb-1">PAN Image</div>
-                            <img src={store.pan_image_url} alt="PAN" className="h-20 rounded border" />
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="bg-gray-50 rounded-lg p-2 border border-gray-200">
-                      <h3 className="text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
-                        <Banknote size={16} className="text-blue-600" />
-                        Bank Details
-                      </h3>
-                      <div className="space-y-1 text-sm">
-                        <CompactLockedRow
-                          label="Account Holder"
-                          value={store.bank_account_holder}
-                        />
-                        <CompactLockedRow
-                          label="Account Number"
-                          value={store.bank_account_number}
-                        />
-                        <CompactLockedRow
-                          label="IFSC Code"
-                          value={store.bank_ifsc}
-                        />
-                        <CompactLockedRow
-                          label="Bank Name"
-                          value={store.bank_name}
-                        />
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="font-medium text-gray-900">Accepts Online Payment</span>
-                          <label className="inline-flex items-center cursor-pointer ml-2">
-                            <input
-                              type="checkbox"
-                              checked={!!editData.accepts_online_payment}
-                              onChange={async (e) => {
-                                const newValue = e.target.checked;
-                                setEditData({ ...editData, accepts_online_payment: newValue });
-                                setStore({ ...store, accepts_online_payment: newValue });
-                                try {
-                                  await updateStoreInfo(storeId, { accepts_online_payment: newValue });
-                                  toast.success(`Accepts Online Payment: ${newValue ? 'Yes' : 'No'}`);
-                                } catch (err) {
-                                  toast.error('Failed to update Online Payment status');
-                                }
-                              }}
-                              className="sr-only peer"
-                            />
-                            <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-500 rounded-full peer peer-checked:bg-green-500 transition-all relative">
-                              <div className={`absolute left-1 top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${editData.accepts_online_payment ? 'translate-x-4' : ''}`}></div>
-                            </div>
-                          </label>
-                        </div>
-                        <div className="flex items-center justify-between gap-2 mt-1">
-                          <span className="font-medium text-gray-900">Accepts Cash</span>
-                          <label className="inline-flex items-center cursor-pointer ml-2">
-                            <input
-                              type="checkbox"
-                              checked={!!editData.accepts_cash}
-                              onChange={async (e) => {
-                                const newValue = e.target.checked;
-                                setEditData({ ...editData, accepts_cash: newValue });
-                                setStore({ ...store, accepts_cash: newValue });
-                                try {
-                                  await updateStoreInfo(storeId, { accepts_cash: newValue });
-                                  toast.success(`Accepts Cash: ${newValue ? 'Yes' : 'No'}`);
-                                } catch (err) {
-                                  toast.error('Failed to update Cash status');
-                                }
-                              }}
-                              className="sr-only peer"
-                            />
-                            <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-500 rounded-full peer peer-checked:bg-green-500 transition-all relative">
-                              <div className={`absolute left-1 top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${editData.accepts_cash ? 'translate-x-4' : ''}`}></div>
-                            </div>
-                          </label>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* IMAGE CARDS - HORIZONTAL LAYOUT */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mt-5">
-                  {/* STORE BANNER CARD */}
-                  <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-4 border border-blue-100">
-                    <div className="flex items-center justify-between mb-3">
-                      <div>
-                        <h3 className="text-sm font-semibold text-gray-900 mb-1">
-                          Store Banner
-                        </h3>
-                        <p className="text-xs text-gray-600">
-                          Upload your store banner image
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium"
-                        onClick={() => bannerInputRef.current?.click()}
-                      >
-                        <Upload size={12} />
-                        Upload Banner
-                      </button>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        ref={bannerInputRef}
-                        style={{ display: "none" }}
-                        onChange={(e) => handleImageUpload(e, 'banner')}
-                      />
-                    </div>
-                    {store.store_banner_url ? (
-                      <img
-                        src={store.store_banner_url}
-                        alt="Store Banner"
-                        className="mt-2 rounded-lg w-full h-48 object-cover"
-                      />
-                    ) : (
-                      <div className="mt-2 h-48 bg-gray-100 rounded-lg flex items-center justify-center">
-                        <div className="text-center">
-                          <ImageIcon size={24} className="text-gray-400 mx-auto mb-2" />
-                          <p className="text-xs text-gray-500">No banner uploaded</p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* ADS IMAGES CARD */}
-                  <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg p-4 border border-green-100">
-                    <div className="flex items-center justify-between mb-3">
-                      <div>
-                        <h3 className="text-sm font-semibold text-gray-900 mb-1">
-                          Ads Images ({store.ads_images?.length || 0}/5)
-                        </h3>
-                        <p className="text-xs text-gray-600">
-                          Upload up to 5 promotional images
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        className="flex items-center gap-1.5 bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium"
-                        onClick={() => setShowImageUploadModal(true)}
-                        disabled={(store.ads_images?.length || 0) >= 5}
-                      >
-                        <Upload size={12} />
-                        Upload Ads
-                      </button>
-                    </div>
-                    
-                    {/* ADS IMAGES GRID */}
-                    <div className="grid grid-cols-2 gap-2 mt-3">
-                      {store.ads_images?.map((img, index) => (
-                        <div key={index} className="relative group">
-                          <img
-                            src={img}
-                            alt={`Ad ${index + 1}`}
-                            className="w-full h-24 object-cover rounded-lg"
-                          />
-                          <button
-                            onClick={() => handleRemoveAdImage(index)}
-                            className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                          >
-                            ×
-                          </button>
-                        </div>
-                      ))}
-                      {uploadingImages.map((img, index) => (
-                        <div key={`uploading-${index}`} className="relative">
-                          <img
-                            src={img}
-                            alt="Uploading..."
-                            className="w-full h-24 object-cover rounded-lg opacity-50"
-                          />
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
-                          </div>
-                        </div>
-                      ))}
-                      {(!store.ads_images || store.ads_images.length === 0) && uploadingImages.length === 0 && (
-                        <div className="col-span-2 h-48 bg-gray-100 rounded-lg flex items-center justify-center">
-                          <div className="text-center">
-                            <ImageIcon size={24} className="text-gray-400 mx-auto mb-2" />
-                            <p className="text-xs text-gray-500">No ads images</p>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
+        {/* SAVE CONFIRM MODAL */}
+        {confirmSave && (
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-5 w-full max-w-sm mx-4">
+              <h3 className="text-base font-semibold text-gray-900 mb-2">Save Changes?</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Confirm to update your profile information
+              </p>
+              <div className="flex justify-end gap-2">
+                <button 
+                  onClick={() => setConfirmSave(false)}
+                  className="px-3 py-1.5 text-sm text-gray-700 hover:text-gray-900"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSave}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded text-sm font-medium"
+                >
+                  Save
+                </button>
               </div>
             </div>
           </div>
-        </div>
+        )}
       </MXLayoutWhite>
-
-      {/* IMAGE UPLOAD MODAL */}
-      {showImageUploadModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Upload Ads Images</h3>
-            <p className="text-sm text-gray-600 mb-4">
-              Upload promotional images (max 5 total). You can upload {5 - (store.ads_images?.length || 0)} more.
-            </p>
-            
-            <div className="mb-6">
-              <div className="flex items-center justify-center w-full">
-                <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
-                  <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                    <Upload className="w-8 h-8 mb-3 text-gray-400" />
-                    <p className="mb-2 text-sm text-gray-500">
-                      <span className="font-semibold">Click to upload</span> or drag and drop
-                    </p>
-                    <p className="text-xs text-gray-500">PNG, JPG, GIF up to 10MB</p>
-                  </div>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    className="hidden"
-                    ref={adsInputRef}
-                    onChange={(e) => handleImageUpload(e, 'ads')}
-                  />
-                </label>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2">
-              <button 
-                onClick={() => setShowImageUploadModal(false)}
-                className="px-4 py-2 text-sm text-gray-700 hover:text-gray-900"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => adsInputRef.current?.click()}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-medium"
-              >
-                Select Images
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* SAVE CONFIRM MODAL */}
-      {confirmSave && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-5 w-full max-w-sm mx-4">
-            <h3 className="text-base font-semibold text-gray-900 mb-2">Save Changes?</h3>
-            <p className="text-sm text-gray-600 mb-4">
-              Confirm to update your profile information
-            </p>
-            <div className="flex justify-end gap-2">
-              <button 
-                onClick={() => setConfirmSave(false)}
-                className="px-3 py-1.5 text-sm text-gray-700 hover:text-gray-900"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSave}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded text-sm font-medium"
-              >
-                Save
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </ProfileErrorBoundary>
   );
 }

@@ -1549,32 +1549,31 @@ function StoreSettingsContent() {
                     </div>
 
                     {/* Weekly Summary */}
-                    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-200 p-6 min-w-[320px]">
-                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                        <div>
-                          <h4 className="font-bold text-gray-900">Weekly Operational Summary</h4>
-                          <p className="text-sm text-gray-600">Total operating hours this week</p>
-                        </div>
-                        <div className="text-center md:text-right">
-                          <div className="text-3xl font-bold text-blue-700">
-                            {storeSchedule.reduce((total, day) => total + day.operationalHours, 0)} hrs
+                    <div className="flex items-center gap-2">
+                      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded border border-blue-200 p-1 min-w-[180px] flex flex-col justify-center">
+                        <div className="flex flex-row items-center justify-between gap-7">
+                          <div>
+                            <h4 className="font-semibold text-gray-900 text-[10px] leading-tight mb-0">Weekly Operational Summary</h4>
+                            <p className="text-[9px] text-gray-600 leading-tight mb-0">Total operating hours this week</p>
                           </div>
-                          <div className="text-sm text-gray-600">
-                            {storeSchedule.reduce((total, day) => total + day.operationalMinutes, 0)} minutes
+                          <div className="text-center">
+                            <div className="text-lg font-bold text-blue-700 leading-tight">
+                              {storeSchedule.reduce((total, day) => total + day.operationalHours, 0)} hrs
+                            </div>
+                            <div className="text-[9px] text-gray-600 leading-tight">
+                              {storeSchedule.reduce((total, day) => total + day.operationalMinutes, 0)} minutes
+                            </div>
                           </div>
                         </div>
                       </div>
-                      {/* Compact Save Button */}
-                      <div className="flex justify-end mt-4">
-                        <button
-                          onClick={saveStoreTimings}
-                          disabled={isSaving}
-                          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-all font-semibold disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-                        >
-                          <Save size={16} />
-                          {isSaving ? 'Saving...' : 'Save All Outlet Timings'}
-                        </button>
-                      </div>
+                      <button
+                        onClick={saveStoreTimings}
+                        disabled={isSaving}
+                        className="flex items-center gap-4.5 px-1 py-0.5 bg-blue-600 text-white rounded hover:bg-blue-700 transition-all font-medium disabled:opacity-50 disabled:cursor-not-allowed text-[12px]"
+                      >
+                        <Save size={25} />
+                        {isSaving ? 'Saving...' : 'Save All Outlet Timings'}
+                      </button>
                     </div>
                   </div>
                 </div>
