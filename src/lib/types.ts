@@ -151,6 +151,17 @@ export interface Restaurant {
 }
 
 // Dashboard Statistics
+// Fallback type for merchant_stores table (schema-aligned, minimal)
+export interface MerchantStore {
+  id: number;
+  store_id: string;
+  store_name: string;
+  city: string;
+  state?: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
 export interface OrderStats {
   total_orders: number;
   pending_orders: number;
