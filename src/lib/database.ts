@@ -604,6 +604,11 @@ export const fetchMenuItems = async (storeId: string) => {
 
 export const createMenuItem = async (itemData: any) => {
   try {
+    // Validate required fields
+    if (!itemData.restaurant_id || !itemData.item_name || !itemData.base_price || !itemData.selling_price) {
+      throw new Error('Missing required fields for menu item.');
+    }
+
     // Get store's internal ID (bigint) from store_id (text)
     const { data: storeData, error: storeError } = await supabase
       .from('merchant_stores')
@@ -615,20 +620,31 @@ export const createMenuItem = async (itemData: any) => {
       throw new Error('Store not found');
     }
 
+    // Validate category_id exists if provided
+    let categoryId = itemData.category_id ?? null;
+    if (categoryId) {
+      const { data: catData, error: catError } = await supabase
+        .from('merchant_menu_categories')
+        .select('id')
+        .eq('id', categoryId)
+        .single();
+      if (catError || !catData) {
+        throw new Error('Category not found');
+      }
+    }
+
     // Check if customizations exist
     const hasCustomizations = itemData.customizations && itemData.customizations.length > 0;
     const hasAddons = hasCustomizations && itemData.customizations.some((c: any) => 
       c.addons && c.addons.length > 0
     );
 
-    // Create the menu item (use only valid schema fields)
-    // item_id will be auto-generated in the DB as GMI1001, GMI1002, ...
+    // Insert menu item
     const { data, error } = await supabase
       .from('merchant_menu_items')
       .insert([{
         store_id: storeData.id,
-        category_id: itemData.category_id ?? null,
-        // item_id omitted for auto-generation
+        category_id: categoryId,
         item_name: itemData.item_name,
         item_description: itemData.item_description || '',
         item_image_url: itemData.item_image_url || null,
@@ -658,15 +674,16 @@ export const createMenuItem = async (itemData: any) => {
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      if (error.code === '42501') {
+        throw new Error('Row Level Security (RLS) policy is blocking inserts. Check your Supabase RLS policy and authentication.');
+      }
+      throw error;
+    }
 
-    // Customizations/addons logic removed, not in schema
-
-    // Fetch the complete item with customizations to return
-    // Return basic item only
     return data;
   } catch (error: any) {
-    console.error('Error creating menu item:', error.message);
+    console.error('Error creating menu item:', error.message || error);
     throw error;
   }
 }

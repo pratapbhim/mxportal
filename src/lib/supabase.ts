@@ -1,28 +1,16 @@
-import { createClient } from '@supabase/supabase-js'
-import type { Database } from './types/supabase'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string;
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined;
+import { createClient } from '@supabase/supabase-js';
+import type { Database } from './types/supabase';
 
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
-let _supabase: ReturnType<typeof createClient<Database>> | undefined;
-let _supabaseAdmin: ReturnType<typeof createClient<Database>> | undefined;
-
-export function getSupabaseClient() {
-	if (!_supabase) {
-		_supabase = createClient<Database>(supabaseUrl, supabaseAnonKey);
-	}
-	return _supabase;
+if (!supabaseUrl || !supabaseAnonKey) {
+	throw new Error('Supabase environment variables are missing. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in your .env.local file.');
 }
 
-export function getSupabaseAdminClient() {
-	if (!_supabaseAdmin) {
-		_supabaseAdmin = createClient<Database>(supabaseUrl, supabaseServiceRoleKey || supabaseAnonKey);
-	}
-	return _supabaseAdmin;
-}
+// Only use anon key for frontend
+export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey);
 
-// For backward compatibility
-export const supabase = getSupabaseClient();
-export const supabaseAdmin = getSupabaseAdminClient();
+// Remove service key usage from frontend
+export const supabaseAdmin = supabase;

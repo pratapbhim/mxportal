@@ -1,5 +1,15 @@
 "use client";
 
+// Helper to generate menu item id like GMI1001, GMI1002, ...
+function generateMenuItemId() {
+  if (typeof window !== 'undefined') {
+    let counter = parseInt(localStorage.getItem('menuItemIdCounter') || '1000', 10);
+    counter += 1;
+    localStorage.setItem('menuItemIdCounter', counter.toString());
+    return `GMI${counter}`;
+  }
+  return `GMI${Math.floor(Math.random() * 9000) + 1000}`;
+}
 // --- MenuItem and Customization Types ---
 interface MenuItem {
   id: number;
@@ -164,6 +174,21 @@ function ItemForm(props: ItemFormProps) {
     categories,
     currentItemId
   } = props;
+
+  // Auto-calculate Selling Price
+  useEffect(() => {
+    const base = parseFloat(formData.base_price) || 0;
+    const discount = parseFloat(formData.discount_percentage) || 0;
+    const tax = parseFloat(formData.tax_percentage) || 0;
+    if (base > 0) {
+      const selling = base - (base * discount / 100) + (base * tax / 100);
+      if (!isNaN(selling)) {
+        setFormData((prev: any) => ({ ...prev, selling_price: selling.toFixed(2) }));
+      }
+    } else {
+      setFormData((prev: any) => ({ ...prev, selling_price: '' }));
+    }
+  }, [formData.base_price, formData.discount_percentage, formData.tax_percentage, setFormData]);
 
   const [activeTab, setActiveTab] = useState<'basic' | 'pricing' | 'customization' | 'advanced'>('basic');
   const [showFoodDropdown, setShowFoodDropdown] = useState(false);
@@ -550,7 +575,7 @@ function ItemForm(props: ItemFormProps) {
                       : 'border-gray-200 focus:border-orange-400 focus:ring-orange-100'
                   }`}
                   value={formData.selling_price}
-                  onChange={e => setFormData({ ...formData, selling_price: e.target.value })}
+                  readOnly
                   required
                 />
                 {isSellingPriceInvalid && (
@@ -982,13 +1007,23 @@ function ItemForm(props: ItemFormProps) {
           >
             Cancel
           </button>
-          <button
-            type="submit"
-            className="px-6 py-2 rounded-lg font-bold text-white bg-orange-500 hover:bg-orange-600 transition-all disabled:opacity-60"
-            disabled={isSaving || isOfferPercentInvalid || isTaxPercentInvalid || isBasePriceInvalid || isSellingPriceInvalid}
-          >
-            {isSaving ? (isEdit ? 'Saving...' : 'Adding...') : (isEdit ? 'Save Changes' : 'Add Item')}
-          </button>
+            <button
+              type="submit"
+              className="px-6 py-2 rounded-lg font-bold text-white bg-orange-500 hover:bg-orange-600 transition-all disabled:opacity-60"
+              disabled={
+                isSaving ||
+                isOfferPercentInvalid ||
+                isTaxPercentInvalid ||
+                isBasePriceInvalid ||
+                isSellingPriceInvalid ||
+                !formData.base_price ||
+                !formData.discount_percentage ||
+                !formData.tax_percentage ||
+                !formData.selling_price
+              }
+            >
+              {isSaving ? (isEdit ? 'Saving...' : 'Adding...') : (isEdit ? 'Save Changes' : 'Add Item')}
+            </button>
         </div>
         {error && <div className="text-red-500 text-xs mt-2">{error}</div>}
       </form>
@@ -1293,6 +1328,22 @@ function MenuContent() {
       const allergensArray = addForm.allergens 
         ? addForm.allergens.split(',').map((a: string) => a.trim()).filter(Boolean)
         : [];
+
+      // Use a ref to persist counter across renders (could be replaced with a DB sequence in production)
+      if (!window.menuItemIdCounterRef) {
+        window.menuItemIdCounterRef = { current: 0 };
+      }
+      // Validate category_id and storeId
+      if (!addForm.category_id) {
+        setAddError('Category is required.');
+        setIsSaving(false);
+        return;
+      }
+      if (!storeId) {
+        setAddError('Store ID is required.');
+        setIsSaving(false);
+        return;
+      }
 
       const newItem = {
         item_name: addForm.item_name,
