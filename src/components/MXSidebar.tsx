@@ -93,6 +93,12 @@ export const MXSidebar: React.FC<MXSidebarProps> = ({
       href: '/mx/payments',
     },
     {
+      id: 'user-insights',
+      label: 'User Insights',
+      icon: <User size={20} />,
+      href: '/mx/user-insights',
+    },
+    {
       id: 'store-settings',
       label: 'Store Settings',
       icon: <Settings size={20} />,

@@ -56,43 +56,49 @@ export const MXSidebarWhite: React.FC<MXSidebarWhiteProps> = ({
     {
       id: 'dashboard',
       label: 'Dashboard',
-      icon: <LayoutDashboard size={20} />,
+      icon: <LayoutDashboard size={20} />, 
       href: '/mx/dashboard'
     },
     {
       id: 'orders',
       label: 'Orders',
-      icon: <ShoppingCart size={20} />,
+      icon: <ShoppingCart size={20} />, 
       href: '/mx/orders'
     },
     {
       id: 'menu',
       label: 'Menu',
-      icon: <UtensilsCrossed size={20} />,
+      icon: <UtensilsCrossed size={20} />, 
       href: '/mx/menu'
     },
     {
       id: 'offers',
       label: 'Offers',
-      icon: <Zap size={20} />,
+      icon: <Zap size={20} />, 
       href: '/mx/offers'
     },
     {
       id: 'payments',
       label: 'Payments',
-      icon: <CreditCard size={20} />,
+      icon: <CreditCard size={20} />, 
       href: '/mx/payments'
+    },
+    {
+      id: 'user-insights',
+      label: 'User Insights',
+      icon: <User size={20} />, 
+      href: '/mx/user-insights'
     },
     {
       id: 'settings',
       label: 'Settings',
-      icon: <Settings size={20} />,
+      icon: <Settings size={20} />, 
       href: '/mx/store-settings'
     },
     {
       id: 'profile',
       label: 'Profile',
-      icon: <User size={20} />,
+      icon: <User size={20} />, 
       href: '/mx/profile'
     }
   ]
