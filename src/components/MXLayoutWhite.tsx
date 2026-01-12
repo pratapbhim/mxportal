@@ -3,6 +3,7 @@
 import React from 'react'
 import UserHeader from './UserHeader'
 import { MXSidebarWhite } from './MXSidebarWhite'
+import NeedHelpBadge from './NeedHelpBadge'
 
 interface MXLayoutWhiteProps {
   children: React.ReactNode
@@ -24,6 +25,8 @@ export const MXLayoutWhite: React.FC<MXLayoutWhiteProps> = ({
           {children}
         </div>
       </main>
+      {/* Need Help Badge (fixed, always visible) */}
+      <NeedHelpBadge />
     </div>
   )
 }

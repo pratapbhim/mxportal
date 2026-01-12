@@ -9,3 +9,5 @@ export { OrderTable as PremiumOrderTable } from './PremiumOrderTable'
 
 export { default as LoginModal } from './LoginModal';
 export { default as StoreSelectionList } from './StoreSelectionList';
+
+export { default as NeedHelpBadge } from './NeedHelpBadge';
