@@ -1,21 +1,38 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { MXLayoutWhite } from '@/components/MXLayoutWhite'
-import { fetchRestaurantById as fetchStoreById, fetchRestaurantByName as fetchStoreByName } from '@/lib/database'
+import { fetchRestaurantById, fetchRestaurantByName } from '@/lib/database'
 import { MerchantStore } from '@/lib/merchantStore'
-import { DEMO_RESTAURANT_ID as DEMO_STORE_ID } from '@/lib/constants'
+import { DEMO_RESTAURANT_ID } from '@/lib/constants'
 import { supabase } from '@/lib/supabase'
 import { Order, OrderStatus } from '@/lib/types'
 import { updateOrderStatus, cancelOrder } from '@/app/actions/orders'
 import { Toaster, toast } from 'sonner'
-import { Clock, CheckCircle2, XCircle, MessageSquare } from 'lucide-react'
+import { 
+  Clock, 
+  CheckCircle2, 
+  XCircle, 
+  MessageSquare,
+  Package,
+  CheckCircle,
+  X,
+  Eye,
+  HelpCircle,
+  Printer,
+  AlertCircle,
+  ChevronRight,
+  Store,
+  ArrowLeftRight
+} from 'lucide-react'
 
 export const dynamic = 'force-dynamic'
 
 function OrdersPageContent() {
   const searchParams = useSearchParams()
+  
+  // सभी Hook top-level पर (All Hooks at top level)
   const [store, setStore] = useState<MerchantStore | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [storeId, setStoreId] = useState<string | null>(null)
@@ -28,10 +45,29 @@ function OrdersPageContent() {
   const [showRefundRejectModal, setShowRefundRejectModal] = useState(false)
   const [refundPercentage, setRefundPercentage] = useState(100)
   const [rejectionReason, setRejectionReason] = useState('')
-
+  
+  // Store toggle state - यहाँ top-level पर (Store toggle state - here at top level)
+  const [isStoreOpen, setIsStoreOpen] = useState<boolean | null>(null)
+  
+  // Marquee state
+  const [marqueeItems, setMarqueeItems] = useState<string[]>([])
+  const [isMarqueePaused, setIsMarqueePaused] = useState(false)
+  
   // Orders state
   const [orders, setOrders] = useState<Order[]>([])
   const [complaints, setComplaints] = useState<any[]>([])
+
+  // Initialize marquee items
+  useEffect(() => {
+    const items = [
+      "Out of an item? Mark it OUT OF STOCK to keep orders running smoothly.",
+      "Update your menu regularly to attract more customers.",
+      "Keep track of inventory to avoid order cancellations.",
+      "Respond to customer complaints within 24 hours for better ratings.",
+      "Use high-quality packaging for better customer experience."
+    ]
+    setMarqueeItems(items)
+  }, [])
 
   // Get restaurant ID
   useEffect(() => {
@@ -60,6 +96,8 @@ function OrdersPageContent() {
         }
         if (storeData) {
           setStore(storeData)
+          // Store status सेट करें (Set store status)
+          setIsStoreOpen(storeData.operational_status === 'OPEN' || storeData.is_accepting_orders)
         }
       } catch (error) {
         console.error('Error loading store:', error)
@@ -86,42 +124,67 @@ function OrdersPageContent() {
     loadOrders()
   }, [storeId])
 
-  // Load complaints (mock data for now)
+  // Load complaints
   useEffect(() => {
-    // Mock complaints data
-    setComplaints([
-      {
-        id: 'complaint_001',
-        orderId: '#ORD001',
-        customerName: 'John Doe',
-        complaint: 'Food was cold when delivered',
-        date: '2025-12-26',
-        status: 'open',
-      },
-      {
-        id: 'complaint_002',
-        orderId: '#ORD002',
-        customerName: 'Jane Smith',
-        complaint: 'Wrong item in order',
-        date: '2025-12-25',
-        status: 'resolved',
-      },
-      {
-        id: 'complaint_003',
-        orderId: '#ORD003',
-        customerName: 'Mike Johnson',
-        complaint: 'Delayed delivery',
-        date: '2025-12-24',
-        status: 'open',
-      },
-    ])
-  }, [])
+    async function loadComplaints() {
+      if (!storeId) return
+      // Fetch complaints from database if available
+      // For now, using empty array as we don't have complaints table yet
+      setComplaints([])
+    }
+    loadComplaints()
+  }, [storeId])
+
+  // Toggle handler - अलग function में (Toggle handler - in separate function)
+  const handleStoreToggle = async () => {
+    if (!storeId) return;
+    const newStatus = isStoreOpen ? 'CLOSED' : 'OPEN';
+    const updates: any = {
+      operational_status: newStatus,
+      is_accepting_orders: !isStoreOpen,
+    };
+    try {
+      // Dynamic import to avoid loading issues
+      const { updateStoreInfo } = await import('@/lib/database');
+      const ok = await updateStoreInfo(storeId, updates);
+      if (ok) {
+        setIsStoreOpen(!isStoreOpen);
+        setStore((prev) => prev ? { 
+          ...prev, 
+          operational_status: newStatus, 
+          is_accepting_orders: !isStoreOpen 
+        } : prev);
+        toast.success(`Store ${!isStoreOpen ? 'opened' : 'closed'} successfully`);
+      } else {
+        toast.error('Failed to update store status');
+      }
+    } catch (error) {
+      console.error('Error updating store status:', error);
+      toast.error('Failed to update store status');
+    }
+  };
 
   const handleStatusChange = async (orderId: string, newStatus: string) => {
-    if (newStatus === 'CANCELLED') {
-      await cancelOrder(orderId, storeId || DEMO_RESTAURANT_ID, 'Merchant cancelled')
-    } else {
-      await updateOrderStatus(orderId, newStatus as OrderStatus, storeId || DEMO_RESTAURANT_ID)
+    try {
+      if (newStatus === 'CANCELLED') {
+        await cancelOrder(orderId, storeId || DEMO_RESTAURANT_ID, 'Merchant cancelled')
+        toast.success('Order cancelled successfully')
+      } else {
+        await updateOrderStatus(orderId, newStatus as OrderStatus, storeId || DEMO_RESTAURANT_ID)
+        toast.success(`Order status updated to ${newStatus}`)
+      }
+      // Refresh orders
+      if (storeId) {
+        const { data } = await supabase
+          .from('food_orders')
+          .select('*')
+          .eq('restaurant_id', storeId)
+          .order('created_at', { ascending: false })
+        if (data) setOrders(data as Order[])
+      }
+    } catch (error) {
+      console.error('Error updating order status:', error)
+      toast.error('Failed to update order status')
     }
   }
 
@@ -142,7 +205,10 @@ function OrdersPageContent() {
 
   if (isLoading) {
     return (
-      <MXLayoutWhite restaurantName={store?.store_name} restaurantId={storeId || ''}>
+      <MXLayoutWhite 
+        restaurantName={store?.store_name} 
+        restaurantId={storeId || ''}
+      >
         <div className="min-h-screen bg-gray-50">
           {/* Header Skeleton */}
           <div className="bg-white border-b border-gray-200 p-6">
@@ -189,28 +255,97 @@ function OrdersPageContent() {
       <div className="min-h-screen bg-white">
         {/* Tab Navigation */}
         <div className="border-b border-gray-200 bg-white sticky top-0 z-10">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between">
+            {/* Nav Tabs */}
             <div className="flex space-x-8">
               {[
-                { id: 'active', label: '📦 Active Orders', icon: Clock },
-                { id: 'completed', label: '✅ Completed', icon: CheckCircle2 },
-                { id: 'cancelled', label: '❌ Cancelled', icon: XCircle },
-                { id: 'complaints', label: `💬 Complaints ${complaints.filter(c => c.status === 'open').length > 0 ? `(${complaints.filter(c => c.status === 'open').length})` : ''}`, icon: MessageSquare },
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`px-1 py-4 border-b-2 font-medium text-sm transition-colors ${
-                    activeTab === tab.id
-                      ? 'border-orange-500 text-orange-600'
-                      : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
+                { id: 'active', label: 'Active Orders', icon: Clock },
+                { id: 'completed', label: 'Completed', icon: CheckCircle2 },
+                { id: 'cancelled', label: 'Cancelled', icon: XCircle },
+                { id: 'complaints', label: 'Complaints', icon: MessageSquare },
+              ].map((tab) => {
+                const Icon = tab.icon;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`px-1 py-4 border-b-2 font-medium text-sm transition-colors flex items-center gap-2 ${
+                      activeTab === tab.id
+                        ? 'border-orange-500 text-orange-600'
+                        : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
+                    }`}
+                  >
+                    <Icon className="w-4 h-4" />
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+            
+            {/* Store Toggle Button - हमेशा दिखेगा (Always visible) */}
+            <div className="flex items-center ml-4">
+              <button
+                onClick={handleStoreToggle}
+                className={`flex items-center gap-2 px-4 py-2 rounded-full font-semibold text-xs shadow border transition-colors focus:outline-none ${
+                  isStoreOpen 
+                    ? 'bg-green-100 text-green-700 border-green-300 hover:bg-green-200' 
+                    : 'bg-red-100 text-red-700 border-red-300 hover:bg-red-200'
+                } ${isStoreOpen === null ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                disabled={isStoreOpen === null}
+                title={isStoreOpen === null ? 'Loading store status...' : isStoreOpen ? 'Click to close store' : 'Click to open store'}
+              >
+                <Store className="w-4 h-4" />
+                {isStoreOpen === null ? 'Loading...' : isStoreOpen ? 'Store Open' : 'Store Closed'}
+                <ArrowLeftRight className="w-4 h-4 opacity-60" />
+              </button>
             </div>
           </div>
+        </div>
+
+        {/* Marquee Notification Bar - Mint Green (Slower speed) */}
+        <div
+          className="w-full bg-green-50 border-b border-green-200 py-2 px-2 relative overflow-hidden"
+          style={{ minHeight: 34 }}
+        >
+          <div
+            className="flex items-center gap-12 marquee-track"
+            onMouseEnter={() => setIsMarqueePaused(true)}
+            onMouseLeave={() => setIsMarqueePaused(false)}
+            style={{
+              whiteSpace: 'nowrap',
+              width: 'max-content',
+              animation: isMarqueePaused
+                ? 'none'
+                : 'marquee-scroll 60s linear infinite', // Slower marquee (60 seconds)
+              fontWeight: 500,
+              fontSize: '14px',
+              color: '#2d3748',
+              cursor: 'pointer',
+            }}
+          >
+            {[...marqueeItems, ...marqueeItems, ...marqueeItems].map((item, index) => (
+              <span key={index} className="flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-green-600 flex-shrink-0" />
+                <span>
+                  <span className="text-green-700 font-semibold">Tip:</span> {item}
+                </span>
+                {index < marqueeItems.length * 3 - 1 && (
+                  <ChevronRight className="w-4 h-4 text-green-400 flex-shrink-0" />
+                )}
+              </span>
+            ))}
+          </div>
+
+          <style>{`
+            @keyframes marquee-scroll {
+              0% {
+                transform: translateX(0);
+              }
+              100% {
+                transform: translateX(-33.33%);
+              }
+            }
+          `}</style>
         </div>
 
         {/* Content */}
@@ -251,7 +386,9 @@ function OrdersPageContent() {
                         </span>
                       </div>
                       <div className="flex items-center gap-2 text-xs text-gray-500 mt-1 mb-1">
-                        <span>📅 2 hours ago</span>
+                        <Clock className="w-3 h-3" />
+                        <span>2 hours ago</span>
+                        <Package className="w-3 h-3 ml-2" />
                         <span className="text-blue-600 font-medium">Delivery</span>
                       </div>
 
@@ -266,7 +403,9 @@ function OrdersPageContent() {
                           </span>
                         )}
                         {order.user_phone && (
-                          <span className="text-xs text-gray-600">📞 {order.user_phone}</span>
+                          <span className="text-xs text-gray-600 flex items-center gap-1">
+                            <span className="text-gray-400">📞</span> {order.user_phone}
+                          </span>
                         )}
                       </div>
 
@@ -288,9 +427,10 @@ function OrdersPageContent() {
                           setSelectedOrder(order)
                           setShowDetailModal(true)
                         }}
-                        className="w-full px-2.5 py-1.5 bg-gray-100 text-gray-900 rounded-md hover:bg-gray-200 font-medium text-xs mb-1 transition-colors flex items-center justify-center gap-1"
+                        className="w-full px-2.5 py-1.5 bg-gray-100 text-gray-900 rounded-md hover:bg-gray-200 font-medium text-xs transition-colors flex items-center justify-center gap-1"
                       >
-                        <span role="img" aria-label="View">👁️</span> View Order
+                        <Eye className="w-3 h-3" />
+                        View Order
                       </button>
 
                       {/* Action Buttons */}
@@ -299,32 +439,36 @@ function OrdersPageContent() {
                           <>
                             <button
                               onClick={() => handleStatusChange(order.id, order.status === 'pending' ? 'confirmed' : 'preparing')}
-                              className="flex-1 px-2.5 py-1.5 bg-green-600 text-white rounded-md hover:bg-green-700 font-medium text-xs transition-colors"
+                              className="flex-1 px-2.5 py-1.5 bg-green-600 text-white rounded-md hover:bg-green-700 font-medium text-xs transition-colors flex items-center justify-center gap-1"
                             >
-                              {order.status === 'pending' ? '✓ Confirm Order' : '📦 Mark Ready for Dispatch'}
+                              <CheckCircle className="w-3 h-3" />
+                              {order.status === 'pending' ? 'Confirm Order' : 'Mark Ready for Dispatch'}
                             </button>
                             <button
                               onClick={() => handleStatusChange(order.id, 'CANCELLED')}
-                              className="flex-1 px-2.5 py-1.5 bg-red-100 text-red-700 rounded-md hover:bg-red-200 font-medium text-xs transition-colors"
+                              className="flex-1 px-2.5 py-1.5 bg-red-100 text-red-700 rounded-md hover:bg-red-200 font-medium text-xs transition-colors flex items-center justify-center gap-1"
                             >
-                              ✕ Reject Order
+                              <X className="w-3 h-3" />
+                              Reject Order
                             </button>
                           </>
                         )}
                         {order.status === 'preparing' && (
                           <button
                             onClick={() => handleStatusChange(order.id, 'ready')}
-                            className="w-full px-2.5 py-1.5 bg-purple-600 text-white rounded-md hover:bg-purple-700 font-medium text-xs transition-colors"
+                            className="w-full px-2.5 py-1.5 bg-purple-600 text-white rounded-md hover:bg-purple-700 font-medium text-xs transition-colors flex items-center justify-center gap-1"
                           >
-                            📦 Mark Ready
+                            <Package className="w-3 h-3" />
+                            Mark Ready
                           </button>
                         )}
                         {order.status === 'ready' && (
                           <button
                             onClick={() => handleStatusChange(order.id, 'delivered')}
-                            className="w-full px-2.5 py-1.5 bg-emerald-600 text-white rounded-md hover:bg-emerald-700 font-medium text-xs transition-colors"
+                            className="w-full px-2.5 py-1.5 bg-emerald-600 text-white rounded-md hover:bg-emerald-700 font-medium text-xs transition-colors flex items-center justify-center gap-1"
                           >
-                            ✓ Mark Delivered
+                            <CheckCircle2 className="w-3 h-3" />
+                            Mark Delivered
                           </button>
                         )}
                       </div>
@@ -362,8 +506,9 @@ function OrdersPageContent() {
                             <p className="text-xs text-gray-600">Order ID:</p>
                             <h3 className="font-bold text-gray-900 text-base">{order.order_number ? order.order_number.substring(0, 12) : ''}</h3>
                           </div>
-                          <span className="px-2 py-1 rounded text-xs font-semibold bg-green-100 text-green-800">
-                            ✅ DELIVERED
+                          <span className="px-2 py-1 rounded text-xs font-semibold bg-green-100 text-green-800 flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3" />
+                            DELIVERED
                           </span>
                         </div>
                       </div>
@@ -378,7 +523,6 @@ function OrdersPageContent() {
                               : `${order.delivery_address?.address || ''}, ${order.delivery_address?.city || ''} - ${order.delivery_address?.pincode || ''}`}
                           </p>
                         )}
-                        {/* Delivery mode removed: not present in FoodOrder */}
                       </div>
 
                       {/* Amount and Items */}
@@ -399,9 +543,10 @@ function OrdersPageContent() {
                           setSelectedOrder(order)
                           setShowDetailModal(true)
                         }}
-                        className="w-full px-3 py-2 bg-gray-100 text-gray-900 rounded-lg hover:bg-gray-200 font-medium text-sm transition-colors"
+                        className="w-full px-3 py-2 bg-gray-100 text-gray-900 rounded-lg hover:bg-gray-200 font-medium text-sm transition-colors flex items-center justify-center gap-1"
                       >
-                        👁️ View Order
+                        <Eye className="w-4 h-4" />
+                        View Order
                       </button>
                     </div>
                   ))}
@@ -438,11 +583,9 @@ function OrdersPageContent() {
                             <h3 className="font-bold text-gray-900 text-base">{order.order_number ? order.order_number.substring(0, 12) : ''}</h3>
                           </div>
                           <div className="flex flex-col gap-1">
-                            <span className="px-2 py-1 rounded text-xs font-semibold bg-red-100 text-red-800">
-                              ❌ CANCELLED
-                            </span>
-                            <span className="px-2 py-1 rounded text-xs font-semibold bg-purple-100 text-purple-800">
-                              💸 REFUNDED
+                            <span className="px-2 py-1 rounded text-xs font-semibold bg-red-100 text-red-800 flex items-center gap-1">
+                              <XCircle className="w-3 h-3" />
+                              CANCELLED
                             </span>
                           </div>
                         </div>
@@ -478,9 +621,10 @@ function OrdersPageContent() {
                           setSelectedOrder(order)
                           setShowDetailModal(true)
                         }}
-                        className="w-full px-3 py-2 bg-gray-100 text-gray-900 rounded-lg hover:bg-gray-200 font-medium text-sm transition-colors"
+                        className="w-full px-3 py-2 bg-gray-100 text-gray-900 rounded-lg hover:bg-gray-200 font-medium text-sm transition-colors flex items-center justify-center gap-1"
                       >
-                        👁️ View Order
+                        <Eye className="w-4 h-4" />
+                        View Order
                       </button>
                     </div>
                   ))}
@@ -502,7 +646,7 @@ function OrdersPageContent() {
               {complaints.length === 0 ? (
                 <div className="text-center py-12">
                   <MessageSquare size={48} className="mx-auto text-gray-400 mb-4" />
-                  <p className="text-gray-600 font-medium">No complaints</p>
+                  <p className="text-gray-600 font-medium">No complaints found</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -526,13 +670,15 @@ function OrdersPageContent() {
                           </div>
                           <div className="flex flex-col gap-1">
                             {complaint.status === 'open' && (
-                              <span className="px-2 py-1 rounded text-xs font-semibold bg-amber-100 text-amber-800 whitespace-nowrap">
-                                ⏳ PENDING REFUND
+                              <span className="px-2 py-1 rounded text-xs font-semibold bg-amber-100 text-amber-800 whitespace-nowrap flex items-center gap-1">
+                                <Clock className="w-3 h-3" />
+                                PENDING
                               </span>
                             )}
                             {complaint.status === 'resolved' && (
-                              <span className="px-2 py-1 rounded text-xs font-semibold bg-red-100 text-red-800 whitespace-nowrap">
-                                🔴 REJECTED REFUND
+                              <span className="px-2 py-1 rounded text-xs font-semibold bg-green-100 text-green-800 whitespace-nowrap flex items-center gap-1">
+                                <CheckCircle2 className="w-3 h-3" />
+                                RESOLVED
                               </span>
                             )}
                           </div>
@@ -541,7 +687,10 @@ function OrdersPageContent() {
 
                       {/* Complaint Details */}
                       <div className="mb-4">
-                        <p className="font-semibold text-gray-900 text-sm mb-2">💬 Issue</p>
+                        <p className="font-semibold text-gray-900 text-sm mb-2 flex items-center gap-1">
+                          <MessageSquare className="w-4 h-4" />
+                          Issue
+                        </p>
                         <p className="text-xs text-gray-700 leading-snug">{complaint.complaint}</p>
                       </div>
 
@@ -549,7 +698,10 @@ function OrdersPageContent() {
                       <div className="flex items-center justify-between mb-4 pb-3 border-b"
                         style={{borderBottomColor: complaint.status === 'open' ? '#fde68a' : '#d1fae5'}}
                       >
-                        <p className="text-xs text-gray-600">📅 {complaint.date}</p>
+                        <p className="text-xs text-gray-600 flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          {complaint.date}
+                        </p>
                       </div>
 
                       {/* Action Button */}
@@ -559,17 +711,19 @@ function OrdersPageContent() {
                             setSelectedComplaint(complaint)
                             setShowComplaintModal(true)
                           }}
-                          className="w-full px-3 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 font-medium text-sm transition-colors"
+                          className="w-full px-3 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 font-medium text-sm transition-colors flex items-center justify-center gap-1"
                         >
-                          🎫 Resolve Tickets
+                          <CheckCircle2 className="w-4 h-4" />
+                          Resolve Complaint
                         </button>
                       )}
                       {complaint.status === 'resolved' && (
                         <button
                           disabled
-                          className="w-full px-3 py-2 bg-red-100 text-red-700 rounded-lg font-medium text-sm cursor-not-allowed"
+                          className="w-full px-3 py-2 bg-green-100 text-green-700 rounded-lg font-medium text-sm cursor-not-allowed flex items-center justify-center gap-1"
                         >
-                          🔴 Refund Rejected
+                          <CheckCircle2 className="w-4 h-4" />
+                          Resolved
                         </button>
                       )}
                     </div>
@@ -609,21 +763,23 @@ function OrdersPageContent() {
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => alert('Help: Contact support for assistance')}
-                  className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium text-xs transition-colors"
+                  className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium text-xs transition-colors flex items-center gap-1"
                 >
-                  ❓ Help
+                  <HelpCircle className="w-4 h-4" />
+                  Help
                 </button>
                 <button
                   onClick={() => window.print()}
-                  className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium text-xs transition-colors"
+                  className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium text-xs transition-colors flex items-center gap-1"
                 >
-                  🖨️ Print Bill
+                  <Printer className="w-4 h-4" />
+                  Print Bill
                 </button>
                 <button
                   onClick={() => setShowDetailModal(false)}
                   className="text-gray-500 hover:text-gray-700 ml-2"
                 >
-                  ✕
+                  <X className="w-5 h-5" />
                 </button>
               </div>
             </div>
@@ -649,7 +805,6 @@ function OrdersPageContent() {
                   }`}>
                     {selectedOrder.status.toUpperCase()}
                   </p>
-                  {/* is_refunded removed: not present in FoodOrder */}
                 </div>
               </div>
 
@@ -696,7 +851,6 @@ function OrdersPageContent() {
                       <span className="text-gray-900 font-medium">₹{selectedOrder.delivery_fee}</span>
                     </div>
                   )}
-                  {/* tax removed: not present in FoodOrder */}
                   <div className="flex justify-between font-bold border-t border-gray-200 pt-1">
                     <span>Total</span>
                     <span className="text-gray-900">₹{selectedOrder.total_amount}</span>
@@ -730,8 +884,9 @@ function OrdersPageContent() {
                       handleStatusChange(selectedOrder.id, 'confirmed')
                       setShowDetailModal(false)
                     }}
-                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-sm"
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-sm flex items-center justify-center gap-1"
                   >
+                    <CheckCircle className="w-4 h-4" />
                     Confirm Order
                   </button>
                 )}
@@ -741,8 +896,9 @@ function OrdersPageContent() {
                       handleStatusChange(selectedOrder.id, 'preparing')
                       setShowDetailModal(false)
                     }}
-                    className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium text-sm"
+                    className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium text-sm flex items-center justify-center gap-1"
                   >
+                    <Package className="w-4 h-4" />
                     Start Preparing
                   </button>
                 )}
@@ -752,8 +908,9 @@ function OrdersPageContent() {
                       handleStatusChange(selectedOrder.id, 'ready')
                       setShowDetailModal(false)
                     }}
-                    className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium text-sm"
+                    className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium text-sm flex items-center justify-center gap-1"
                   >
+                    <CheckCircle2 className="w-4 h-4" />
                     Mark Ready
                   </button>
                 )}
@@ -763,8 +920,9 @@ function OrdersPageContent() {
                       handleStatusChange(selectedOrder.id, 'delivered')
                       setShowDetailModal(false)
                     }}
-                    className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium text-sm"
+                    className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium text-sm flex items-center justify-center gap-1"
                   >
+                    <CheckCircle2 className="w-4 h-4" />
                     Mark Delivered
                   </button>
                 )}
@@ -810,7 +968,7 @@ function OrdersPageContent() {
                 onClick={() => setShowComplaintModal(false)}
                 className="text-gray-500 hover:text-gray-700"
               >
-                ✕
+                <X className="w-5 h-5" />
               </button>
             </div>
 
@@ -823,37 +981,27 @@ function OrdersPageContent() {
             >
               {/* Issue Section */}
               <div className="bg-purple-50 p-3 rounded-lg border border-purple-200">
-                <p className="text-xs text-gray-600 font-semibold uppercase mb-2">💬 Issue</p>
+                <p className="text-xs text-gray-600 font-semibold uppercase mb-2 flex items-center gap-1">
+                  <MessageSquare className="w-4 h-4" />
+                  Issue
+                </p>
                 <p className="text-sm text-gray-900 leading-snug">{selectedComplaint.complaint}</p>
               </div>
 
-              {/* Images Section */}
-              {selectedComplaint.images && selectedComplaint.images.length > 0 && (
-                <div>
-                  <p className="text-xs text-gray-600 font-semibold uppercase mb-2">📸 Images</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {selectedComplaint.images.map((image: any, idx: number) => (
-                      <img
-                        key={idx}
-                        src={image}
-                        alt={`Complaint image ${idx + 1}`}
-                        className="rounded-lg border border-gray-200 w-full h-24 object-cover"
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-
               {/* Complaint Details */}
               <div className="bg-blue-50 p-3 rounded-lg border border-blue-200 space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Date</span>
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-600 flex items-center gap-1">
+                    <Clock className="w-4 h-4" />
+                    Date
+                  </span>
                   <span className="font-semibold text-gray-900">📅 {selectedComplaint.date}</span>
                 </div>
-                <div className="flex justify-between">
+                <div className="flex justify-between items-center">
                   <span className="text-gray-600">Status</span>
-                  <span className="px-2 py-1 rounded text-xs font-semibold bg-amber-100 text-amber-800">
-                    ⏳ PENDING REFUND
+                  <span className="px-2 py-1 rounded text-xs font-semibold bg-amber-100 text-amber-800 flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    PENDING
                   </span>
                 </div>
               </div>
@@ -863,160 +1011,21 @@ function OrdersPageContent() {
             <div className="border-t border-gray-200 pt-2 p-3 flex gap-2 flex-shrink-0">
               <button
                 onClick={() => {
+                  alert(`Complaint resolved for ${selectedComplaint.orderId}`)
                   setShowComplaintModal(false)
-                  setShowRefundAcceptModal(true)
                 }}
-                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium text-sm transition-colors"
+                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium text-sm transition-colors flex items-center justify-center gap-1"
               >
-                ✓ Accept Refund
+                <CheckCircle2 className="w-4 h-4" />
+                Mark Resolved
               </button>
               <button
                 onClick={() => {
                   setShowComplaintModal(false)
-                  setShowRefundRejectModal(true)
                 }}
-                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium text-sm transition-colors"
+                className="flex-1 px-4 py-2 bg-gray-200 text-gray-900 rounded-lg hover:bg-gray-300 font-medium text-sm transition-colors"
               >
-                ✕ Reject Refund
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Refund Accept Modal - Select Percentage */}
-      {showRefundAcceptModal && selectedComplaint && (
-        <div 
-          className="fixed inset-0 flex items-center justify-center p-4 z-50 pointer-events-none"
-          onClick={() => setShowRefundAcceptModal(false)}
-        >
-          <div 
-            className="bg-white rounded-lg w-full max-w-md shadow-2xl pointer-events-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Header */}
-            <div className="bg-green-600 text-white px-4 py-4 rounded-t-lg">
-              <h3 className="text-lg font-bold">✓ Accept Refund</h3>
-              <p className="text-sm text-green-100">{selectedComplaint.orderId} - {selectedComplaint.customerName}</p>
-            </div>
-
-            {/* Body */}
-            <div className="p-4 space-y-4">
-              <p className="text-sm text-gray-700 font-semibold">Select refund percentage:</p>
-              
-              <div className="space-y-2">
-                {[
-                  { value: 100, label: 'Full Refund (100%)' },
-                  { value: 50, label: 'Half Refund (50%)' },
-                  { value: 20, label: 'Partial Refund (20%)' }
-                ].map((option) => (
-                  <label key={option.value} className="flex items-center p-3 border-2 rounded-lg cursor-pointer transition-colors"
-                    style={{
-                      borderColor: refundPercentage === option.value ? '#16a34a' : '#e5e7eb',
-                      backgroundColor: refundPercentage === option.value ? '#f0fdf4' : '#ffffff'
-                    }}
-                  >
-                    <input
-                      type="radio"
-                      name="refund"
-                      value={option.value}
-                      checked={refundPercentage === option.value}
-                      onChange={(e) => setRefundPercentage(Number(e.target.value))}
-                      className="mr-3"
-                    />
-                    <span className="font-semibold text-gray-900">{option.label}</span>
-                  </label>
-                ))}
-              </div>
-
-              <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
-                <p className="text-sm text-blue-900">
-                  <strong>Refund Amount:</strong> ₹{Math.round((selectedComplaint.orderId ? 376 : 0) * refundPercentage / 100)}
-                </p>
-              </div>
-            </div>
-
-            {/* Actions */}
-            <div className="border-t border-gray-200 p-4 flex gap-2">
-              <button
-                onClick={() => setShowRefundAcceptModal(false)}
-                className="flex-1 px-4 py-2 bg-gray-200 text-gray-900 rounded-lg hover:bg-gray-300 font-medium text-sm"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  alert(`✓ Refund of ${refundPercentage}% accepted for ${selectedComplaint.orderId}`);
-                  setShowRefundAcceptModal(false)
-                  setShowComplaintModal(false)
-                }}
-                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium text-sm"
-              >
-                Confirm Accept
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Refund Reject Modal - Get Reason */}
-      {showRefundRejectModal && selectedComplaint && (
-        <div 
-          className="fixed inset-0 flex items-center justify-center p-4 z-50 pointer-events-none"
-          onClick={() => setShowRefundRejectModal(false)}
-        >
-          <div 
-            className="bg-white rounded-lg w-full max-w-md shadow-2xl pointer-events-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Header */}
-            <div className="bg-red-600 text-white px-4 py-4 rounded-t-lg">
-              <h3 className="text-lg font-bold">✕ Reject Refund</h3>
-              <p className="text-sm text-red-100">{selectedComplaint.orderId} - {selectedComplaint.customerName}</p>
-            </div>
-
-            {/* Body */}
-            <div className="p-4 space-y-4">
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Rejection Reason:</label>
-                <textarea
-                  value={rejectionReason}
-                  onChange={(e) => setRejectionReason(e.target.value)}
-                  placeholder="Please explain why you are rejecting this refund..."
-                  className="w-full px-3 py-2 border-2 border-gray-300 rounded-lg focus:border-red-500 focus:outline-none text-sm resize-none"
-                  rows={4}
-                />
-              </div>
-
-              <div className="bg-red-50 p-3 rounded-lg border border-red-200">
-                <p className="text-xs text-red-900">
-                  <strong>⚠️ Note:</strong> The customer will receive a notification about this rejection with your reason.
-                </p>
-              </div>
-            </div>
-
-            {/* Actions */}
-            <div className="border-t border-gray-200 p-4 flex gap-2">
-              <button
-                onClick={() => setShowRefundRejectModal(false)}
-                className="flex-1 px-4 py-2 bg-gray-200 text-gray-900 rounded-lg hover:bg-gray-300 font-medium text-sm"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  if (!rejectionReason.trim()) {
-                    alert('Please provide a reason for rejection')
-                    return
-                  }
-                  alert(`✕ Refund rejected for ${selectedComplaint.orderId}\nReason: ${rejectionReason}`);
-                  setShowRefundRejectModal(false)
-                  setShowComplaintModal(false)
-                  setRejectionReason('')
-                }}
-                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium text-sm"
-              >
-                Confirm Reject
+                Close
               </button>
             </div>
           </div>
@@ -1026,13 +1035,14 @@ function OrdersPageContent() {
   )
 }
 
-import { Suspense } from 'react';
-
 export default function OrdersPage() {
   return (
-    <Suspense fallback={<div>Loading...</div>}>
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-gray-600">Loading orders...</div>
+      </div>
+    }>
       <OrdersPageContent />
     </Suspense>
-  );
+  )
 }
-
